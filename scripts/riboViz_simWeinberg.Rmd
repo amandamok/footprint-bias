@@ -1,0 +1,155 @@
+---
+title: "RiboViz simWeinberg Regressions"
+author: "Amanda Mok"
+date: "01/07/2019"
+output: html_document
+---
+
+```{r load-data}
+library(foreach)
+library(pscl)
+library(ggplot2)
+library(patchwork)
+
+setwd("~/footprint-bias/scripts/")
+source("prep_data.R")
+
+# specify filenames
+transcript_fa_fname <- "../sample_data/riboViz_transcripts_18cds15.fa"
+transcript_length_fname <- "../sample_data/riboViz_transcripts_18cds15_lengths.txt"
+offsets_fname <- "../sample_data/Asite_rules.txt"
+sam_fname <- "../sample_data/riboViz_simWeinberg_footprints.sam"
+
+# initialize regression framework
+system.time({
+  regression_data <- init_data(transcript_fa_fname, transcript_length_fname)
+})
+system.time({
+  regression_data <- count_footprints(sam_fname, transcript_length_fname, offsets_fname, regression_data)
+})
+save(regression_data, file="../sample_data/riboViz_simWeinberg_regression_data.Rda")
+```
+
+### fit all data
+
+```{r fit-all-data, echo=F}
+regression <- formula(count ~ transcript + A + P + E + d5 + d3 + f5 + f3)
+poisson_fit <- glm(regression, data=regression_data, family="poisson")
+quasipois_fit <- glm(regression, data=regression_data, family="quasipoisson")
+negbin_fit <- MASS::glm.nb(regression, data=regression_data)
+zi_regression <- formula(count ~ transcript + A + P + E + d5 + d3 + f5 + f3 | transcript + f5 + f3)
+zip_fit <- pscl::zeroinfl(zi_regression, data=regression_data, dist="poisson")
+zinb_fit <- pscl::zeroinfl(zi_regression, data=regression_data, dist="negbin")
+all_fits <- list(poisson_fit, quasipois_fit, negbin_fit, zip_fit, zinb_fit)
+names(all_fits) <- c("poisson", "quasipois", "negbin", "zip", "zinb")
+
+# data frame with residuals
+residuals <- data.frame(fit=factor(rep(names(all_fits),
+                                       each=nrow(regression_data)),
+                                   levels=names(all_fits)),
+                        regression_data,
+                        predicted=unlist(lapply(all_fits, function(x) predict(x, type="response"))), 
+                        residual=unlist(lapply(all_fits, function(x) residuals(x, type="response"))))
+residuals_summed <- data.frame(aggregate(count ~ transcript + cod_idx + fit, data=residuals, FUN=sum),
+                               predicted=aggregate(predicted ~ transcript + cod_idx + fit, 
+                                                   data=residuals, FUN=sum)$predicted,
+                               residuals=aggregate(residual ~ transcript + cod_idx + fit,
+                                                   data=residuals, FUN=sum)$residual)
+save(all_fits, residuals, residuals_summed,
+     file="../sample_data/riboViz_simWeinberg_regression.Rda")
+```
+
+### plot fits
+```{r plot-model-predictions}
+ggplot(residuals_summed) + geom_line(aes(x=cod_idx, y=count)) + 
+  geom_line(aes(x=cod_idx, y=predicted, color=fit)) + 
+  facet_grid(fit~transcript, scales="free") + 
+  theme_bw() + xlab("codon position") + ylab("predicted") + ggtitle("Regression predictions")
+ggplot(residuals_summed) + geom_line(aes(x=cod_idx, y=residuals, color=fit)) + 
+  facet_grid(fit~transcript, scales="free") + 
+  theme_bw() + xlab("codon position") + ylab("residual") + ggtitle("Regression residuals")
+```
+
+### evaluate model fits
+
+```{r evaluate-model-fits, echo=F}
+model_eval <- data.frame(fit=names(all_fits),
+                         AIC=sapply(all_fits, AIC),
+                         dispersion=sapply(all_fits, function(x) ifelse(is.null(summary(x)$dispersion), 
+                                                                        NA, summary(x)$dispersion)),
+                         total_error=sapply(all_fits, function(x) sum(abs(residuals(x, type="response")))))
+model_eval$dispersion[4] <- 1 # zip
+model_eval$dispersion[5] <- zinb_fit$theta
+model_eval$fit <- factor(model_eval$fit, levels=c("poisson", "quasipois", "negbin", "zip", "zinb"))
+knitr::kable(model_eval, row.names=F)
+
+ggplot(model_eval, aes(fit, AIC)) + geom_bar(stat="identity") +
+  theme_bw() + xlab("model") + ylab("") + ggtitle("AIC")
+ggplot(model_eval, aes(fit, total_error)) + geom_bar(stat="identity") +
+  theme_bw() + xlab("model") + ylab("") + ggtitle("Total error")
+
+print("testing... poisson vs. negative binomial regression")
+pscl::odTest(negbin_fit)
+print("testing... poisson vs. zero-inflated poisson regression")
+pscl::vuong(poisson_fit, zip_fit)
+print("testing... negative binomial vs. zero-inflated negative binomial regression")
+pscl::vuong(negbin_fit, zinb_fit)
+print("testing... zero-inflated poisson vs. zero-inflated negative binomial regression")
+pscl::vuong(zip_fit, zinb_fit)
+```
+
+### violin plots of model residuals
+
+```{r residuals, echo=F}
+# violin plots
+ggplot(residuals, aes(fit, residual)) + geom_violin(aes(fill=fit)) + theme_bw()
+ggplot(residuals, aes(fit, residual)) + geom_violin(aes(fill=fit)) + theme_bw() + 
+  coord_cartesian(ylim=c(-100, 500))
+```
+
+### mean-variance plots for residuals
+
+```{r residuals-mean-var}
+residuals$residual_sq <- residuals$residual^2
+nb_mean_var <- data.frame(x=seq(from=1, to=round(max(residuals$predicted))))
+nb_mean_var$y <- nb_mean_var$x + nb_mean_var$x^2/summary(all_fits[["negbin"]])$dispersion
+fit_colors <- hcl(h=seq(15, 375, length=length(all_fits)+1), l=65, c=100)
+mean_var <- ggplot(residuals, aes(x=predicted, y=residual_sq, color=fit)) + geom_jitter(alpha=0.2) + 
+  theme_bw() + xlab("mean") + ylab("variance") +
+  geom_abline(slope=1, intercept=0, color=fit_colors[1]) +
+  geom_abline(slope=summary(all_fits[["quasipois"]])$dispersion, intercept=0, color=fit_colors[2]) +
+  geom_line(data=nb_mean_var, mapping=aes(x=x, y=y), color=fit_colors[3]) + 
+  geom_smooth(method="loess", color="black")
+```
+
+### residuals vs. predictors
+
+```{r residuals-vs-predictors}
+plot_residuals_predictors <- function(resid_table, predictor, xlabel) {
+  # 3 plots:
+  #     barplot of # observations per category of predictor
+  #     boxplot of residuals by category of predictor, colored by model
+  #     boxplot of actual footprint count per category of predictor
+  ## resid_table: data.frame with column names "fit", "residual", "count", and predictor
+  ## predictor: character; corresponds to column name in resid_table
+  ##            predictor must be a factor
+  ## xlabel: character; x-axis label
+  require(ggplot2)
+  require(patchwork)
+  pred_barplot <- ggplot(resid_table, aes_string(predictor)) + geom_bar() + theme_bw() + xlab("")
+  pred_residplot <- ggplot(resid_table, aes_string(predictor, "residual")) + geom_boxplot(aes(color=fit)) +
+    theme_bw() + xlab("")
+  pred_counts <- ggplot(resid_table, aes_string(predictor, "count")) + geom_boxplot() + 
+    theme_bw() + xlab(xlabel) + scale_y_continuous(trans='log10')
+  pred_barplot / pred_residplot / pred_counts + plot_layout(heights=c(2,3,2))
+}
+
+plot_residuals_predictors(residuals, "f5", "5' bias sequence")
+plot_residuals_predictors(residuals, "f3", "3' bias sequence")
+plot_residuals_predictors(residuals, "A", "A site codon")
+plot_residuals_predictors(residuals, "P", "P site codon")
+plot_residuals_predictors(residuals, "E", "E site codon")
+plot_residuals_predictors(residuals, "transcript", "transcript")
+plot_residuals_predictors(residuals, "d5", "5' digest length")
+plot_residuals_predictors(residuals, "d3", "3' digest length")
+```
