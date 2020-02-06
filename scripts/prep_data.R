@@ -183,7 +183,7 @@ count_footprints_gene <- function(transcript, sam_fname, transcript_length_fname
   ## transcript_length_fname: character; file path to transcriptome lengths file
   ## offsets_fname: character; file.path to offset / A site assignment rules .txt file
   ## regression_data: data.frame; output from init_data()
-  rpf_sam <- system(paste("grep", transcript, sam_fname), intern=T)
+  rpf_sam <- system(paste("grep -w", transcript, sam_fname), intern=T)
   rpf_sam <- rpf_sam[!grepl("^@", rpf_sam)]
   rpf_sam <- strsplit(rpf_sam, split="\t")
   rpf_sam <- data.frame(t(sapply(rpf_sam, function(x) x[c(3, 4, 10)])), stringsAsFactors=F)
@@ -226,14 +226,6 @@ count_footprints <- function(sam_fname, transcript_length_fname, offsets_fname,
   ## transcript_length_fname: character; file.path to transcriptome lengths file
   ## offsets_fname: character; file.path to offset / A site assignment rules .txt file
   ## regression_data: data.frame; output from init_data()
-  # establish start_lines and num_lines for count_footprints_subset()
-  # n_sam_header_lines <- length(system(paste("grep ^@", sam_fname), intern=T))
-  # n_footprints <- as.numeric(strsplit(system(paste("wc -l", sam_fname), intern=T), split=" ")[[1]][1])
-  # n_footprints <- n_footprints - n_sam_header_lines
-  # num_subsets <- ceiling(n_footprints / subset_size)
-  # start_lines <- (1:num_subsets-1)*subset_size + 1 + n_sam_header_lines
-  # num_lines <- rep(subset_size, num_subsets)
-  # num_lines[num_subsets] <- (n_sam_header_lines + n_footprints) - start_lines[num_subsets] + 1
   num_subsets <- length(levels(regression_data$transcript))
   # count footprints
   if(is.null(num_cores)) {
@@ -242,22 +234,6 @@ count_footprints <- function(sam_fname, transcript_length_fname, offsets_fname,
   num_cores <- ifelse(num_cores > num_subsets, num_subsets, num_cores)
   cl <- parallel::makeCluster(num_cores)
   doParallel::registerDoParallel(cl)
-  # if(num_subsets>1) {
-  #   cl <- parallel::makeCluster(num_cores)
-  #   doParallel::registerDoParallel(cl)
-  #   fp_counts <- foreach(a=start_lines, b=num_lines, 
-  #                        .export=c("count_footprints_subset", "load_offsets", "load_lengths"),
-  #                        .combine=cbind) %dopar% {
-  #                          count_footprints_subset(a, b, sam_fname, transcript_length_fname, 
-  #                                                  offsets_fname, regression_data)
-  #                        }
-  #   parallel::stopCluster(cl)
-  #   fp_counts <- rowSums(fp_counts)
-  # } else {
-  #   fp_counts <- count_footprints_subset(start_lines, num_lines, sam_fname, transcript_length_fname,
-  #                                        offsets_fname, regression_data)
-  # }
-  # regression_data$count <- fp_counts
   regression_data <- foreach(a=levels(regression_data$transcript),
                              .export=c("count_footprints_gene", "load_offsets", "load_lengths"),
                              .combine=rbind) %dopar% {
