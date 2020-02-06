@@ -1,0 +1,4 @@
+"transcript" "utr5_length" "cds_length" "utr3_length"
+"2260" "YGR192C" 18 999 15
+"3628" "YLR044C" 18 1692 15
+"2587" "YHR174W" 18 1314 15
