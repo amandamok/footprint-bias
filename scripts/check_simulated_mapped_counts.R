@@ -1,8 +1,8 @@
 rm(list=ls())
 
-source("~/footprint-bias/scripts/prep_data.R")
+source("prep_data.R")
 
-data_dir <- "~/footprint-bias/sample_data"
+data_dir <- "../sample_data"
 
 rpf_fa_fname <- file.path(data_dir, "riboViz_simASite.fa")
 rpf_sam_fname <- file.path(data_dir, "riboViz_simASite_footprints.sam")
