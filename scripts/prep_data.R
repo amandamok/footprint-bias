@@ -78,7 +78,7 @@ get_bias_seq <- function(transcript_name, cod_idx, digest_length, utr5_length,
 
 init_data <- function(transcript_fa_fname, transcript_length_fname,
                       digest5_lengths=15:18, digest3_lengths=9:11, bias_length=2,
-                      num_cores=NULL) {
+                      num_cores=NULL, which_transcripts=NULL) {
   # initialize data.frame for downstream GLM
   ## transcript_fa_fname: character; file path to transcriptome .fa file
   ## transcript_length_fname: character; file path to transcriptome lengths file
@@ -86,8 +86,13 @@ init_data <- function(transcript_fa_fname, transcript_length_fname,
   ## digest3_lengths: integer vector; legal 3' digest lengths
   ## bias_length: integer; length of bias sequence
   ## num_cores: integer; number of cores to parallelize over
+  ## which_transcripts: character vector; transcripts selected for regression
   transcript_seq <- load_fa(transcript_fa_fname)
   transcript_length <- load_lengths(transcript_length_fname)
+  if(!is.null(which_transcripts)) {
+    transcript_seq <- transcript_seq[which_transcripts]
+    transcript_length <- subset(transcript_length, transcript %in% which_transcripts)
+  }
   transcript <- unlist(mapply(rep, x=transcript_length$transcript, times=transcript_length$cds_length/3))
   cod_idx <- unlist(lapply(transcript_length$cds_length/3, seq))
   if(is.null(num_cores)) {
@@ -126,7 +131,7 @@ load_offsets <- function(offsets_fname) {
   ## offsets_fname: character; file.path to offset / A site assignment rules .txt file
   ## rownames: footprint length
   ## colnames: frame (0, 1, 2)
-  offsets <- read.table(offsets_fname)
+  offsets <- read.table(offsets_fname, header=T)
   offsets <- data.frame(frame=as.vector(mapply(rep, 0:2, nrow(offsets))),
                         length=rep(as.numeric(rownames(offsets)), 3),
                         offset=c(offsets$frame_0, offsets$frame_1, offsets$frame_2))
@@ -176,21 +181,33 @@ count_footprints_subset <- function(start_line, num_lines,
 }
 
 count_footprints_gene <- function(transcript, sam_fname, transcript_length_fname, 
-                                  offsets_fname, regression_data) {
+                                  offsets_fname, regression_data, mapping_weights=F) {
   # count up footprints by A site and digest lengths
   ## transcript: character; transcript to count footprints for
   ## sam_fname: character; file.path to .sam alignment file
   ## transcript_length_fname: character; file path to transcriptome lengths file
   ## offsets_fname: character; file.path to offset / A site assignment rules .txt file
   ## regression_data: data.frame; output from init_data()
+  ## mapping_weights: logical; whether .sam alignment file has mapping weights (i.e. output from RSEM)
   rpf_sam <- system(paste("grep -w", transcript, sam_fname), intern=T)
   rpf_sam <- rpf_sam[!grepl("^@", rpf_sam)]
   rpf_sam <- strsplit(rpf_sam, split="\t")
-  rpf_sam <- data.frame(t(sapply(rpf_sam, function(x) x[c(3, 4, 10)])), stringsAsFactors=F)
-  colnames(rpf_sam) <- c("transcript", "pos", "rpf")
+  if(mapping_weights) {
+    rpf_sam <- data.frame(t(sapply(rpf_sam, function(x) x[c(3, 4, 10, 15)])), stringsAsFactors=F)
+    colnames(rpf_sam) <- c("transcript", "pos", "rpf", "wts")
+    rpf_sam$wts <- as.numeric(sub("ZW:f:", "", rpf_sam$wts))
+  } else {
+    rpf_sam <- data.frame(t(sapply(rpf_sam, function(x) x[c(3, 4, 10)])), stringsAsFactors=F)
+    colnames(rpf_sam) <- c("transcript", "pos", "rpf")
+    rpf_sam$wts <- 1
+  }
+  rpf_sam <- rpf_sam[rpf_sam$transcript==transcript,]
   rpf_sam$pos <- as.numeric(as.character(rpf_sam$pos))
+  # get 5' UTR lengths
+  transcript_length <- load_lengths(transcript_length_fname)
+  rpf_sam$utr5_length <- transcript_length$utr5_length[match(rpf_sam$transcript, transcript_length$transcript)]
   # calculate 5' digest lengths, remove non-allowable footprints
-  rpf_sam$frame <- (rpf_sam$pos-1) %% 3
+  rpf_sam$frame <- (rpf_sam$pos - rpf_sam$utr5_length - 1) %% 3
   rpf_sam$length <- nchar(rpf_sam$rpf)
   offsets <- load_offsets(offsets_fname)
   rpf_sam$d5 <- offsets$offset[prodlim::row.match(rpf_sam[,c("frame", "length")], 
@@ -198,34 +215,32 @@ count_footprints_gene <- function(transcript, sam_fname, transcript_length_fname
   rpf_sam <- subset(rpf_sam, !is.na(rpf_sam$d5))
   # calculate 3' digest lengths
   rpf_sam$d3 <- with(rpf_sam, length-d5-3)
-  # get 5' UTR lengths
-  transcript_length <- load_lengths(transcript_length_fname)
-  rpf_sam$utr5_length <- transcript_length$utr5_length[match(rpf_sam$transcript, transcript_length$transcript)]
   # calculate cod_idx, remove footprints mapped outside coding region
   rpf_sam$cod_idx <- with(rpf_sam, (pos+d5-utr5_length+2)/3)
   rpf_sam$cds_length <- transcript_length$cds_length[match(rpf_sam$transcript, transcript_length$transcript)]/3
   rpf_sam <- subset(rpf_sam, rpf_sam$cod_idx > 0)
   rpf_sam <- subset(rpf_sam, rpf_sam$cod_idx < rpf_sam$cds_length)
   # count up footprints with same (transcript, cod_idx, d5, d3)
-  variables <- c("transcript", "cod_idx", "d5", "d3")
-  rpf_sam <- rpf_sam[, variables]
-  rpf_sam <- aggregate(list(count=rep(1, nrow(rpf_sam))), rpf_sam, length)
+  rpf_sam <- aggregate(wts ~ transcript + cod_idx + d5 + d3, data=rpf_sam, FUN=sum)
   # add counts to regression data.frame
   regression_data <- subset(regression_data, regression_data$transcript==transcript)
   rpf_sam <- subset(rpf_sam,
                     rpf_sam$d5 %in% levels(regression_data$d5) & rpf_sam$d3 %in% levels(regression_data$d3))
+  variables <- c("transcript", "cod_idx", "d5", "d3")
   rpf_rows <- prodlim::row.match(rpf_sam[, variables], regression_data[, variables])
-  regression_data$count[rpf_rows] <- rpf_sam$count
+  regression_data$count[rpf_rows] <- rpf_sam$wts
   return(regression_data)
 }
 
 count_footprints <- function(sam_fname, transcript_length_fname, offsets_fname, 
-                             regression_data, subset_size=1e5, num_cores=NULL) {
+                             regression_data, num_cores=NULL, mapping_weights=F) {
   # count up footprints by transcript, A site, and digest lengths
   ## sam_fname: character; file.path to .sam alignment file
   ## transcript_length_fname: character; file.path to transcriptome lengths file
   ## offsets_fname: character; file.path to offset / A site assignment rules .txt file
   ## regression_data: data.frame; output from init_data()
+  ## num_cores: integer; number of cores to parallelize over
+  ## mapping_weights: logical; whether .sam alignment file has mapping weights (i.e. output from RSEM)
   num_subsets <- length(levels(regression_data$transcript))
   # count footprints
   if(is.null(num_cores)) {
@@ -239,8 +254,37 @@ count_footprints <- function(sam_fname, transcript_length_fname, offsets_fname,
                              .combine=rbind) %dopar% {
                                tmp_data <- subset(regression_data, transcript==a)
                                count_footprints_gene(a, sam_fname, transcript_length_fname,
-                                                     offsets_fname, tmp_data)
+                                                     offsets_fname, tmp_data, mapping_weights)
                              }
   parallel::stopCluster(cl)
   return(regression_data)
+}
+
+plot_profile <- function(regression_data, transcript_id, model_fit=NULL) {
+  # plot ribosome profile (aggregated counts per codon position) for a transcript
+  ## regression_data: data.frame; output by init_data() and count_footprints()
+  ## transcript_id: character; name of transcript to be plotted
+  ## model_fit: glm() object; output from performing regression
+  # count up footprints per codon position
+  data_subset <- subset(regression_data, transcript==transcript_id)
+  data_subset_cts <- aggregate(count ~ transcript + cod_idx, data=data_subset, FUN=sum)
+  data_subset_cts$type <- "data"
+  # plot profile
+  if(is.null(model_fit)) {
+    profile_plot <- ggplot2::ggplot(data_subset_cts, aes(x=cod_idx, y=count)) + geom_line() + 
+      theme_bw() + xlab("codon position") + ylab("footprint count") + ggtitle(transcript_id)
+  } else {
+    data_pred <- predict(model_fit, newdata=data_subset, type="response")
+    data_pred_cts <- cbind(data_subset, data_pred)
+    data_pred_cts <- aggregate(data_pred ~ transcript + cod_idx, data=data_pred_cts, FUN=sum)
+    data_pred_cts$type <- 
+    data_subset_cts$pred <- data_pred_cts$data_pred[prodlim::row.match(data_pred_cts[,c("transcript", "cod_idx")], 
+                                                                       data_subset_cts[,c("transcript", "cod_idx")])]
+    data_subset_cts$type <- "model prediction"
+    profile_plot <- ggplot2::ggplot(data_subset_cts) + 
+      geom_line(aes(x=cod_idx, y=count), col="black") +
+      geom_line(aes(x=cod_idx, y=pred), col="red", alpha=0.5) + 
+      theme_bw() + xlab("codon position") + ylab("footprint count") + ggtitle(transcript_id) + labs(colour="")
+  }
+  return(profile_plot)
 }
