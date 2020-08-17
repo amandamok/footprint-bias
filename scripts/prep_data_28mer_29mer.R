@@ -76,27 +76,25 @@ get_bias_seq <- function(transcript_name, cod_idx, digest_length, utr5_length,
   return(bias_seq)
 }
 
-init_data <- function(transcript_fa_fname, transcript_length_fname,
-                      digest5_lengths=15:18, digest3_lengths=9:11, bias_length=2,
-                      num_cores=NULL, which_transcripts=NULL, ntBase=F, jointBias=F) {
-  # initialize data.frame for downstream GLM
+init_data <- function(transcript_fa_fname, transcript_length_fname, bias_length=2,
+                      num_cores=NULL, which_transcripts=NULL) {
+  # initialize data.frame for downstream GLM ; assume d5=15 and d3=10 for all footprints
   ## transcript_fa_fname: character; file path to transcriptome .fa file
   ## transcript_length_fname: character; file path to transcriptome lengths file
-  ## digest5_lengths: integer vector; legal 5' digest lengths
-  ## digest3_lengths: integer vector; legal 3' digest lengths
   ## bias_length: integer; length of bias sequence
   ## num_cores: integer; number of cores to parallelize over
   ## which_transcripts: character vector; transcripts selected for regression
-  ## ntBase: logical ; whether to account for addition of non-templated base to 5' end
-  ## jointBias: logical ; whether to model 5' and 3' biases jointly
   transcript_seq <- load_fa(transcript_fa_fname)
   transcript_length <- load_lengths(transcript_length_fname)
   if(!is.null(which_transcripts)) {
     transcript_seq <- transcript_seq[which_transcripts]
     transcript_length <- subset(transcript_length, transcript %in% which_transcripts)
   }
+  # establish transcripts
   transcript <- unlist(mapply(rep, x=transcript_length$transcript, times=transcript_length$cds_length/3))
+  # establish codon indices
   cod_idx <- unlist(lapply(transcript_length$cds_length/3, seq))
+  # look up codons for A, P, and E sites
   if(is.null(num_cores)) {
     num_cores <- parallel::detectCores()-8
   }
@@ -107,8 +105,8 @@ init_data <- function(transcript_fa_fname, transcript_length_fname,
                     .combine='rbind', .export=c("get_codons")) %dopar% {
                       get_codons(a, b, c, transcript_seq)
                     }
-  dat <- reshape::expand.grid.df(data.frame(transcript, cod_idx, codons),
-                                 expand.grid(d5=digest5_lengths, d3=digest3_lengths))
+  # look up 5' and 3' bias sequences
+  dat <- data.frame(transcript, cod_idx, codons, d5=15, d3=10)
   dat$f5 <- foreach(a=as.character(dat$transcript), b=dat$cod_idx, c=dat$d5, 
                     d=transcript_length$utr5_length[match(dat$transcript, transcript_length$transcript)],
                     .combine='c', .export=c("get_bias_seq")) %dopar% { 
@@ -119,33 +117,20 @@ init_data <- function(transcript_fa_fname, transcript_length_fname,
                     .combine='c', .export=c("get_bias_seq")) %dopar% {
                       get_bias_seq(a, b, c, d, transcript_seq, "f3", bias_length)
                     }
-  bases <- c("A", "C", "T", "G")
-  if(ntBase) {
-    dat <- foreach(x=seq.int(nrow(dat))) %dopar% {
-      first_nt <- substr(dat$f5[x], start=1, stop=1)
-      add_to <- substr(dat$f5[x], start=2, stop=bias_length)
-      alt_f5s <- paste0(bases, add_to)
-      nt_base <- bases
-      nt_base[nt_base==first_nt] <- "-"
-      return(data.frame(dat[x,], alt_f5=alt_f5s, nt_base=nt_base))
-    }
-    dat <- do.call(rbind, dat)
-  }
-  if(jointBias) {
-    if(ntBase) {
-      dat$joint_bias <- paste0(substr(dat$alt_f5, start=1, stop=2),
-                               substr(dat$f3, start=bias_length, stop=bias_length))
-    } else {
-      dat$joint_bias <- paste0(substr(dat$f5, start=1, stop=2),
-                               substr(dat$f3, start=bias_length, stop=bias_length))
-    }
-    dat$joint_bias <- as.factor(dat$joint_bias)
-  }
-  parallel::stopCluster(cl)
-  dat$d5 <- as.factor(dat$d5)
-  dat$d3 <- as.factor(dat$d3)
+  # add rows for non-templated base additions
+  bases <- c("A", "C", "G", "T")
+  dat <- do.call(rbind, 
+                 foreach(x=seq.int(nrow(dat))) %dopar% {
+                   suffix <- substr(dat$f5[x], start=1, stop=(bias_length-1))
+                   tmp_dat <- dat[rep(x, each=5),]
+                   tmp_dat$f5[2:5] <- paste0(bases, suffix)
+                   tmp_dat$nt_base <- c("-", bases)
+                   return(tmp_dat) })
   dat$f5 <- as.factor(dat$f5)
   dat$f3 <- as.factor(dat$f3)
+  dat$nt_base <- as.factor(dat$nt_base)
+  parallel::stopCluster(cl)
+  # zero out counts
   dat$count <- 0
   return(dat)
 }
@@ -163,7 +148,7 @@ load_offsets <- function(offsets_fname) {
 }
 
 count_footprints_gene <- function(transcript_name, sam_fname, transcript_length_fname, 
-                                  offsets_fname, regression_data, mapping_weights=F, ntBase=F) {
+                                  offsets_fname, regression_data, mapping_weights=F, prop_assign=F) {
   # count up footprints by A site and digest lengths
   ## transcript_name: character; transcript to count footprints for
   ## sam_fname: character; file.path to .sam alignment file
@@ -171,7 +156,7 @@ count_footprints_gene <- function(transcript_name, sam_fname, transcript_length_
   ## offsets_fname: character; file.path to offset A site assignment rules .txt file
   ## regression_data: data.frame; output from init_data()
   ## mapping_weights: logical; whether .sam alignment file has mapping weights (i.e. output from RSEM)
-  ## ntBase: logical ; whether to account for addition of non-templated base to 5' end
+  ## prop_assign: either FALSE or data.frame [ output from compute_29mer_weight() ]
   rpf_sam <- system(paste("grep -w", transcript_name, sam_fname), intern=T)
   rpf_sam <- rpf_sam[!grepl("^@", rpf_sam)]
   rpf_sam <- strsplit(rpf_sam, split="\t")
@@ -180,8 +165,8 @@ count_footprints_gene <- function(transcript_name, sam_fname, transcript_length_
     colnames(rpf_sam) <- c("transcript", "pos", "rpf", "mismatch_seq", "wts")
     rpf_sam$wts <- as.numeric(sub("ZW:f:", "", rpf_sam$wts))
     rpf_sam$mismatch_1 <- grepl(":0[A|T|C|G]", rpf_sam$mismatch_seq) # mismatch in first nt of footprint
-    rpf_sam$mismatch_2 <- grepl(":0[A|T|C|G]0", rpf_sam$mismatch_seq) # mismatch in first 2 nt of footprint
-    rpf_sam <- subset(rpf_sam, !mismatch_2) # remove footprints with 2 non-templated bases
+    # rpf_sam$mismatch_2 <- grepl(":0[A|T|C|G]0", rpf_sam$mismatch_seq) # mismatch in first 2 nt of footprint
+    # rpf_sam <- subset(rpf_sam, !mismatch_2) # remove footprints with 2 non-templated bases
   } else {
     rpf_sam <- data.frame(t(sapply(rpf_sam, function(x) x[c(3, 4, 10)])), stringsAsFactors=F)
     colnames(rpf_sam) <- c("transcript", "pos", "rpf")
@@ -196,8 +181,7 @@ count_footprints_gene <- function(transcript_name, sam_fname, transcript_length_
   rpf_sam$frame <- (rpf_sam$pos - rpf_sam$utr5_length - 1) %% 3
   rpf_sam$length <- nchar(rpf_sam$rpf)
   offsets <- load_offsets(offsets_fname)
-  rpf_sam$d5 <- offsets$offset[prodlim::row.match(rpf_sam[,c("frame", "length")], 
-                                                  offsets[c("frame", "length")])]
+  rpf_sam$d5 <- offsets$offset[prodlim::row.match(rpf_sam[,c("frame", "length")], offsets[c("frame", "length")])]
   rpf_sam <- subset(rpf_sam, !is.na(rpf_sam$d5))
   # calculate 3' digest lengths
   rpf_sam$d3 <- with(rpf_sam, length-d5-3)
@@ -207,22 +191,31 @@ count_footprints_gene <- function(transcript_name, sam_fname, transcript_length_
   rpf_sam <- subset(rpf_sam, rpf_sam$cod_idx > 0)
   rpf_sam <- subset(rpf_sam, rpf_sam$cod_idx < rpf_sam$cds_length)
   # count up footprints
-  if(ntBase) {
-    rpf_sam$f5 <- substr(rpf_sam$rpf, start=1, stop=2)
-    rpf_sam$d5[rpf_sam$mismatch_1] <- rpf_sam$d5[rpf_sam$mismatch_1] - 1
-    rpf_sam <- aggregate(wts ~ cod_idx + d5 + d3 + f5, data=rpf_sam, FUN=sum)
+  if(class(prop_assign) == "data.frame") {
+    rpf_sam_28mer <- within(subset(rpf_sam, length==28 & frame==0),
+                            nt_base <- "-")
+    rpf_sam_29mer_mismatch <- within(subset(rpf_sam, length==29 & frame==2), 
+                                     { wts <- wts * prop_assign$weight[prop_assign$mismatch==T]
+                                     nt_base <- substr(rpf, 1, 1)
+                                     length <- length - 1
+                                     frame <- 0
+                                     })
+    rpf_sam_29mer_noMismatch <- within(subset(rpf_sam, length==29 & frame==2), 
+                                       { wts <- wts * prop_assign$weight[prop_assign$mismatch==F]
+                                       nt_base <- "-"
+                                       })
+    rpf_sam <- rbind(rpf_sam_28mer, rpf_sam_29mer_mismatch, rpf_sam_29mer_noMismatch)
   } else {
-    rpf_sam <- aggregate(wts ~ cod_idx + d5 + d3, data=rpf_sam, FUN=sum)
+    rpf_sam <- rbind(subset(rpf_sam, length==28 & frame==0), subset(rpf_sam, length==29 & frame==2))
+    rpf_sam$nt_base <- "-"
+    rpf_sam$nt_base[rpf_sam$length==29] <- substr(rpf_sam$rpf[rpf_sam$length==29], 1, 1)
   }
+  rpf_sam <- subset(rpf_sam, nt_base != "N")
+  rpf_sam <- aggregate(wts ~ cod_idx + nt_base, data=rpf_sam, FUN=sum)
   # add counts to regression data.frame
   regression_data <- subset(regression_data, regression_data$transcript==transcript_name)
-  variables <- c("cod_idx", "d5", "d3")
-  if(ntBase) {
-    rpf_rows <- prodlim::row.match(rpf_sam[, c(variables, "f5")], 
-                                   regression_data[, c(variables, "alt_f5")])
-  } else {
-    rpf_rows <- prodlim::row.match(rpf_sam[, variables], regression_data[, variables])
-  }
+  variables <- c("cod_idx", "nt_base")
+  rpf_rows <- prodlim::row.match(rpf_sam[, variables], regression_data[, variables])
   # take care of mismatches
   rpf_sam <- subset(rpf_sam, !is.na(rpf_rows))
   rpf_rows <- rpf_rows[!is.na(rpf_rows)]
@@ -231,8 +224,58 @@ count_footprints_gene <- function(transcript_name, sam_fname, transcript_length_
   return(regression_data)
 }
 
+compute_29mer_weight <- function(sam_fname, transcript_length_fname, 
+                                 which_transcripts, mapping_weights=F, start_codon=F) {
+  # compute weighting of 29mer footprint to mismatch versus no mismatch
+  ## sam_fname: character; file.path to .sam alignment file
+  ## transcript_length_fname: character; file.path to transcriptome lengths file
+  ## which_transcripts: character vector; transcript ids in 3rd column of .sam alignment file
+  ## mapping_weights: logical; whether .sam alignment file has mapping weights (i.e. output from RSEM)
+  utr5_length <- unique(load_lengths(transcript_length_fname)$utr5_length)
+  num_cores <- min(parallel::detectCores()-8, length(which_transcripts))
+  cl <- parallel::makeCluster(num_cores)
+  doParallel::registerDoParallel(cl)
+  dat <- foreach(a=which_transcripts, .export="count_29mer_mismatch_gene") %dopar% {
+    count_29mer_mismatch_gene(a, sam_fname, utr5_length, mapping_weights, start_codon)
+  }
+  dat <- data.frame(mismatch = c(F, T), 
+                    weight = rowSums(sapply(dat, function(x) x$weight)))
+  dat$weight <- dat$weight / sum(dat$weight)
+  parallel::stopCluster(cl)
+  return(dat)
+}
+
+count_29mer_mismatch_gene <- function(transcript_name, sam_fname, utr5_length=20, mapping_weights=F, start_codon=F) {
+  # per gene, count number of 29mers in frame 2 with/out mismatch
+  ## transcript_name: character; transcript id in 3rd column of .sam alignment file
+  ## sam_fname: character; file.path to .sam alignment file
+  ## utr5_length: integer; number of nucleotides padding until start codon
+  ## mapping_weights: logical; whether to .sam alignment file has mapping weights (i.e. output from RSEM)
+  ## start_codon: logical; whether to only count footprints at start codon (i.e. pos=8)
+  if(mapping_weights) {
+    sam_dat <- system(paste("grep -w", transcript_name, sam_fname, "| grep -v ^@ | cut -f 4,10,13,15"), intern=T)
+    sam_dat <- data.frame(matrix(unlist(strsplit(sam_dat, split="\t")), ncol=4, byrow=T), stringsAsFactors=F)
+    colnames(sam_dat) <- c("pos", "rpf_seq", "mismatch", "weight")
+    sam_dat$weight <- as.numeric(sub("ZW:f:", "", sam_dat$weight))
+  } else {
+    sam_dat <- system(paste("grep -w", transcript, sam_fname, "| grep -v ^@ | cut -f 4,10,13"), intern=T)
+    sam_dat <- data.frame(matrix(unlist(strsplit(sam_dat, split="\t")), ncol=3, byrow=T), stringsAsFactors=F)
+    colnames(sam_dat) <- c("pos", "rpf_seq", "mismatch")
+    sam_dat$weight <- 1
+  }
+  sam_dat$pos <- as.numeric(sam_dat$pos)
+  sam_dat$frame <- (sam_dat$pos - utr5_length - 1) %% 3
+  sam_dat$rpf_length <- nchar(sam_dat$rpf_seq)
+  sam_dat$mismatch <- grepl("MD:Z:0", sam_dat$mismatch)
+  sam_dat <- subset(sam_dat, rpf_length==29 & frame==2)
+  if(start_codon) { sam_dat <- subset(sam_dat, pos==8) }
+  counts <- aggregate(weight ~ mismatch, data=sam_dat, FUN=sum)
+  return(counts)
+}
+
 count_footprints <- function(sam_fname, transcript_length_fname, offsets_fname, 
-                             regression_data, num_cores=NULL, mapping_weights=F, ntBase=F) {
+                             regression_data, num_cores=NULL, mapping_weights=F, prop_assign=F,
+                             start_codon=F) {
   # count up footprints by transcript, A site, and digest lengths
   ## sam_fname: character; file.path to .sam alignment file
   ## transcript_length_fname: character; file.path to transcriptome lengths file
@@ -240,12 +283,19 @@ count_footprints <- function(sam_fname, transcript_length_fname, offsets_fname,
   ## regression_data: data.frame; output from init_data()
   ## num_cores: integer; number of cores to parallelize over
   ## mapping_weights: logical; whether .sam alignment file has mapping weights (i.e. output from RSEM)
+  ## prop_assign: logical; whether to use 29mer weights
+  ## start_codon: logical; whether to limit 29mer weights to start codon footprints
   num_subsets <- length(levels(regression_data$transcript))
   # count footprints
   if(is.null(num_cores)) {
     num_cores <- parallel::detectCores()-8
   }
   num_cores <- ifelse(num_cores > num_subsets, num_subsets, num_cores)
+  if(prop_assign) {
+    prop_assign <- compute_29mer_weight(sam_fname, transcript_length_fname, 
+                                        which_transcripts=levels(regression_data$transcript),
+                                        mapping_weights, start_codon)
+  }
   cl <- parallel::makeCluster(num_cores)
   doParallel::registerDoParallel(cl)
   regression_data <- foreach(a=levels(regression_data$transcript),
@@ -253,7 +303,8 @@ count_footprints <- function(sam_fname, transcript_length_fname, offsets_fname,
                              .combine=rbind) %dopar% {
                                tmp_data <- subset(regression_data, transcript==a)
                                count_footprints_gene(a, sam_fname, transcript_length_fname,
-                                                     offsets_fname, tmp_data, mapping_weights, ntBase)
+                                                     offsets_fname, tmp_data, 
+                                                     mapping_weights, prop_assign)
                              }
   parallel::stopCluster(cl)
   return(regression_data)

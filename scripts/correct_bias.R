@@ -1,11 +1,11 @@
 library(foreach)
 
-correct_bias <- function(dat, fit) {
+correct_bias <- function(dat, fit, f5_header="f5") {
   # predict counts if bias sequences were set to reference level, allowing residuals
   ## dat: data.frame containing regression predictors
   ## fit: fitted model object
   # 1. establish f5 scaling factors
-  f5_coefs <- coef(fit)[match(paste0("f5", levels(dat$f5)), names(coef(fit)))]
+  f5_coefs <- coef(fit)[match(paste0(f5_header, levels(dat$f5)), names(coef(fit)))]
   names(f5_coefs) <- levels(dat$f5)
   f5_coefs[is.na(f5_coefs)] <- 0
   f5_coefs <- exp(f5_coefs)
@@ -22,21 +22,38 @@ correct_bias <- function(dat, fit) {
   return(dat)
 }
 
-correct_bias_predict <- function(dat, fit) {
-  # predict counts if bias sequences were set to reference level, using model fit
+correct_bias_joint <- function(dat, fit, ...) {
+  # predict counts if joint bias sequences were set to reference level, allowing residuals
   ## dat: data.frame containing regression predictors
   ## fit: fitted model object
-  # 1. set all bias sequences to reference level
-  dat_corrected <- dat
-  dat_corrected$f5 <- factor(levels(dat_corrected$f5)[1], levels=levels(dat_corrected$f5))
-  dat_corrected$f3 <- factor(levels(dat_corrected$f3)[1], levels=levels(dat_corrected$f3))
-  # 2. predict counts for modified data, add to original data.frame
-  dat$corrected_count <- predict(fit, newdata=dat_corrected, type="response")
+  # 1. establish scaling factors
+  jointBias_coefs <- coef(fit)[match(paste0("joint_bias", levels(dat$joint_bias)), names(coef(fit)))]
+  names(jointBias_coefs) <- levels(dat$joint_bias)
+  jointBias_coefs[is.na(jointBias_coefs)] <- 0
+  jointBias_coefs <- exp(jointBias_coefs)
+  # 2. calculate corrected counts
+  dat$corrected_count <- dat$count / jointBias_coefs[as.character(dat$joint_bias)]
   # 3. rescale predicted counts so they sum to original footprint count
   dat$corrected_count <- dat$corrected_count * sum(dat$count) / sum(dat$corrected_count)
   # 4. return dat with corrected counts
   return(dat)
 }
+
+# correct_bias_predict <- function(dat, fit) {
+#   # predict counts if bias sequences were set to reference level, using model fit
+#   ## dat: data.frame containing regression predictors
+#   ## fit: fitted model object
+#   # 1. set all bias sequences to reference level
+#   dat_corrected <- dat
+#   dat_corrected$f5 <- factor(levels(dat_corrected$f5)[1], levels=levels(dat_corrected$f5))
+#   dat_corrected$f3 <- factor(levels(dat_corrected$f3)[1], levels=levels(dat_corrected$f3))
+#   # 2. predict counts for modified data, add to original data.frame
+#   dat$corrected_count <- predict(fit, newdata=dat_corrected, type="response")
+#   # 3. rescale predicted counts so they sum to original footprint count
+#   dat$corrected_count <- dat$corrected_count * sum(dat$count) / sum(dat$corrected_count)
+#   # 4. return dat with corrected counts
+#   return(dat)
+# }
 
 correct_bias_sim <- function(dat, p5bias, n3bias) {
   # predict counts if bias sequences were set to reference level, using simulation parameters
@@ -184,7 +201,8 @@ readFAfile <- function(faFile, pad5, pad3) {
   return(faList)
 }
 
-evaluate_bias <- function(dat, transcripts_fa_fname, utr5=18, utr3=15, trunc5=20, trunc3=20) {
+evaluate_bias <- function(dat, transcripts_fa_fname, utr5=18, utr3=15, trunc5=20, trunc3=20, 
+                          num_f5_codons=6, num_f3_codons=6, type="codon") {
   # perform iXnos regression and generate leave-one-out correlation plots
   ## dat: data.frame containing regression predictors and column of corrected counts
   ## transcripts_fa_fname: character; filepath to transcriptome .fa file
@@ -192,6 +210,9 @@ evaluate_bias <- function(dat, transcripts_fa_fname, utr5=18, utr3=15, trunc5=20
   ## utr3: integer; 3' UTR padding in transcriptome .fa file
   ## trunc5: integer; number of 5' codons to leave out in codon correlation regression
   ## trunc3: integer; number of 3' codons to leave out in codon correlation regression
+  ## num_f5_codons: integer; number of codons to include 5' of A site in regression
+  ## num_f3_codons: integer; number of codons to include 3' of A site in regression
+  ## type: character; one of "codon" or "nt"
   # 1. aggregate counts by codon
   cts_by_codon <- count_by_codon(dat)
   # 2. remove truncated codons, scale footprint counts by transcript mean
@@ -217,11 +238,21 @@ evaluate_bias <- function(dat, transcripts_fa_fname, utr5=18, utr3=15, trunc5=20
                                   transcript <- as.character(cts_by_codon$transcript[x])
                                   cod_idx <- cts_by_codon$cod_idx[x] - 1 # transcripts_seq uses 0-based indexing
                                   Asite_index <- which(names(transcripts_seq[[transcript]])==as.character(cod_idx)) 
-                                  codons <- transcripts_seq[[transcript]][(Asite_index-(floor(utr5/3))):(Asite_index+(floor(utr3/3)))]
+                                  codons <- transcripts_seq[[transcript]][(Asite_index-num_f5_codons):(Asite_index+num_f3_codons)]
                                   return(codons)
                                 })))
-  codon_positions <- c(paste0("p", floor(utr5/3):(3)), "E", "P", "A", paste0("n", 1:floor(utr3/3)))
-  colnames(codons) <- codon_positions
+  colnames(codons) <- c(paste0("n", num_f5_codons:3), 
+                        "E", "P", "A", 
+                        paste0("p", 1:num_f3_codons))
+  if(type=="nt") {
+    codons <- data.frame(lapply(codons, as.character), stringsAsFactors=F)
+    codons <- sapply(seq(nrow(codons)), function(x) {paste0(codons[x,], collapse="")})
+    codons <- data.frame(matrix(unlist(strsplit(codons, split="")), 
+                                ncol=3*(num_f5_codons+num_f3_codons+1), byrow=T))
+    colnames(codons) <- c(paste0("n", (3*num_f3_codons):7),
+                          paste0(rep(c("E", "P", "A"), each=3), 0:2),
+                          paste0("p", 1:(3*num_f5_codons)))
+  }
   count_dat <- data.frame(count = cts_by_codon$count, codons)
   corrected_dat <- data.frame(count=cts_by_codon$corrected_count, codons)
   # 4. full model
@@ -230,12 +261,12 @@ evaluate_bias <- function(dat, transcripts_fa_fname, utr5=18, utr3=15, trunc5=20
   corrected_full_cor <- cor(corrected_dat$count,
                             predict(lm(count ~ ., data=corrected_dat)))
   # 5. leave-one-out models
-  count_loo_cor <- sapply(codon_positions,
+  count_loo_cor <- sapply(colnames(codons),
                           function(x) {
                             cor(count_dat$count,
                                 predict(lm(count ~ ., data=count_dat[,-which(colnames(count_dat)==x)])))
                           })
-  corrected_loo_cor <- sapply(codon_positions,
+  corrected_loo_cor <- sapply(colnames(codons),
                               function(x) {
                                 cor(corrected_dat$count,
                                     predict(lm(count ~ ., data=corrected_dat[,-which(colnames(corrected_dat)==x)])))
@@ -243,14 +274,17 @@ evaluate_bias <- function(dat, transcripts_fa_fname, utr5=18, utr3=15, trunc5=20
   # 6. return model correlations
   model_cor <- data.frame(uncorrected = c(count_full_cor, count_loo_cor),
                           corrected = c(corrected_full_cor, corrected_loo_cor))
-  rownames(model_cor) <- c("full", codon_positions)
+  rownames(model_cor) <- c("full", colnames(codons))
   return(model_cor)
 }
 
 plot_bias <- function(model_cor, plotTitle="") {
   # make iXnos codon correlation plots
   ## model_cor: data.frame; output from evaluate_bias()
-  ## plotTitle: character; 
+  ## plotTitle: character; title for output plot
+  ## type: character; one of "codon" or "nt"
+  rownames(model_cor) <- sub("n", "-", rownames(model_cor))
+  rownames(model_cor) <- sub("p", "", rownames(model_cor))
   cor_diff <- data.frame(diff = c(model_cor$uncorrected[1] - model_cor$uncorrected[2:nrow(model_cor)],
                                   model_cor$corrected[1] - model_cor$corrected[2:nrow(model_cor)]),
                          site = rownames(model_cor)[-1],
@@ -261,17 +295,19 @@ plot_bias <- function(model_cor, plotTitle="") {
     theme_bw() + xlab("position") + ylab(expression(Delta*" correlation")) + ggtitle(plotTitle)
 }
 
-codon_corr <- function(regression_data, model_fit, correction, transcripts_fa_fname,
-                       utr5=20, utr3=20, trunc5=20, trunc3=20, p5bias=NULL, n3bias=NULL, plot_title="") {
+codon_corr <- function(regression_data, model_fit=NULL, correction, transcripts_fa_fname, f5_header="f5",
+                       utr5=20, utr3=20, trunc5=20, trunc3=20, p5bias=NULL, n3bias=NULL, plot_title="",
+                       num_f5_codons=6, num_f3_codons=6, type="codon") {
   # wrapper function to correct data from regression fit, compute and plot codon correlations
   ## regression_data: data.frame containing regression predictors; output from init_data() and count_footprints()
   ## model_fit: fitted model object
   ## correction: character; which correction function to use
-  ### one of "correct_bias", "correct_bias_predict", or "correct_bias_sim"
+  ### one of "correct_bias", "correct_bias_predict", "correct_bias_sim", or "correct_bias_joint"
   ### correct_bias: takes regression coefficient from model_fit, applies correction coefficient as exp(beta)
   ### correct_bias_predict: takes prediction from model_fit (i.e. ignore residuals)
   ### correct_bias_sim: takes simulation probabilities as correction coefficients
   ## transcripts_fa_fname: character; file.path to transcriptome .fa file
+  ## f5_header: character; name of 5' bias variable from regression
   ## utr5: integer; 5' UTR padding in transcriptome .fa file
   ## utr3: integer; 3' UTR padding in transcriptome .fa file
   ## trunc5: integer; number of 5' codons to leave out in codon correlation regression
@@ -279,14 +315,18 @@ codon_corr <- function(regression_data, model_fit, correction, transcripts_fa_fn
   ## p5bias: named numeric vector; recovery probabilities from simulation for correct_bias_sim()
   ## n3bias: named numeric vector; recovery probabilities from simulation for correct_bias_sim()
   ## plot_title: character; title for codon correlation plot
+  ## num_f5_codons: integer; number of codons to include 5' of A site in regression
+  ## num_f3_codons: integer; number of codons to include 3' of A site in regression
+  ## type: character; one of "codon" or "nt"
   # 1. apply correction to regression_data
-  if(correction %in% c("correct_bias", "correct_bias_predict")) {
-    dat <- do.call(correction, args=list(dat=regression_data, fit=model_fit))
+  if(correction %in% c("correct_bias", "correct_bias_predict", "correct_bias_joint")) {
+    dat <- do.call(correction, args=list(dat=regression_data, fit=model_fit, f5_header=f5_header))
   } else {
     dat <- correct_bias_sim(regression_data, p5bias, n3bias)
   }
   # 2. evaluate bias
-  loo_cors <- evaluate_bias(dat, transcripts_fa_fname, utr5, utr3, trunc5, trunc3)
+  loo_cors <- evaluate_bias(dat, transcripts_fa_fname, utr5, utr3, trunc5, trunc3, 
+                            num_f5_codons, num_f3_codons, type)
   # 3. plot biases
   loo_plot <- plot_bias(loo_cors, plot_title)
   # 4. return model correlations and plot
