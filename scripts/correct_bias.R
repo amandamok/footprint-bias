@@ -22,39 +22,6 @@ correct_bias <- function(dat, fit, f5_header="f5") {
   return(dat)
 }
 
-correct_bias_joint <- function(dat, fit, ...) {
-  # predict counts if joint bias sequences were set to reference level, allowing residuals
-  ## dat: data.frame containing regression predictors
-  ## fit: fitted model object
-  # 1. establish scaling factors
-  jointBias_coefs <- coef(fit)[match(paste0("joint_bias", levels(dat$joint_bias)), names(coef(fit)))]
-  names(jointBias_coefs) <- levels(dat$joint_bias)
-  jointBias_coefs[is.na(jointBias_coefs)] <- 0
-  jointBias_coefs <- exp(jointBias_coefs)
-  # 2. calculate corrected counts
-  dat$corrected_count <- dat$count / jointBias_coefs[as.character(dat$joint_bias)]
-  # 3. rescale predicted counts so they sum to original footprint count
-  dat$corrected_count <- dat$corrected_count * sum(dat$count) / sum(dat$corrected_count)
-  # 4. return dat with corrected counts
-  return(dat)
-}
-
-# correct_bias_predict <- function(dat, fit) {
-#   # predict counts if bias sequences were set to reference level, using model fit
-#   ## dat: data.frame containing regression predictors
-#   ## fit: fitted model object
-#   # 1. set all bias sequences to reference level
-#   dat_corrected <- dat
-#   dat_corrected$f5 <- factor(levels(dat_corrected$f5)[1], levels=levels(dat_corrected$f5))
-#   dat_corrected$f3 <- factor(levels(dat_corrected$f3)[1], levels=levels(dat_corrected$f3))
-#   # 2. predict counts for modified data, add to original data.frame
-#   dat$corrected_count <- predict(fit, newdata=dat_corrected, type="response")
-#   # 3. rescale predicted counts so they sum to original footprint count
-#   dat$corrected_count <- dat$corrected_count * sum(dat$count) / sum(dat$corrected_count)
-#   # 4. return dat with corrected counts
-#   return(dat)
-# }
-
 correct_bias_sim <- function(dat, p5bias, n3bias) {
   # predict counts if bias sequences were set to reference level, using simulation parameters
   ## dat: data.frame containing regression predictors
@@ -74,88 +41,6 @@ correct_bias_sim <- function(dat, p5bias, n3bias) {
   dat$corrected_count <- dat$corrected_count * sum(dat$count) / sum(dat$corrected_count)
   # 5. return dat with corrected counts
   return(dat)
-}
-
-correct_bias_sam_chunk <- function(sam_fname, p5bias, n3bias, start_line, end_line, replace_weights=F, 
-                                   tmp_dir, tmp_fname) {
-  # add column to .sam alignment file (subset)
-  ## sam_fname: character; file.path to .sam alignment file
-  ## p5bias: named numeric vector; fold change values, relative to reference level
-  ## n3bias: named numeric vector; fold change values, relative to reference level
-  ## start_line: integer; first line in sam_fname to read
-  ## end_line: integer; last line in sam_fname to read 
-  ## replace_weights: logical; whether .sam alignment has existing weights (RSEM)
-  ## tmp_dir: character; file.path to directory for temporary files
-  ## tmp_fname: character; file name for output .sam file (subset)
-  # extract footprint sequences and weights
-  subset_command <- paste("head -n", as.integer(end_line), sam_fname, "| tail -n", as.integer(end_line-start_line+1))
-  fp_seq <- system(paste(subset_command, "| cut -f 10"), intern=T)
-  if(replace_weights==T) {
-    fp_weights <- system(paste(subset_command, "| cut -f 15"), intern=T)
-    fp_weights <- as.numeric(sub("ZW:f:", "", fp_weights))
-  } else {
-    fp_weights <- rep(1, length(fp_seq))
-  }
-  # compute correction weights
-  f5_length <- nchar(names(p5bias)[1])
-  f5_seq <- substr(fp_seq, start=1, stop=f5_length)
-  f5_weights <- p5bias[match(f5_seq, names(p5bias))]
-  f5_weights[is.na(f5_weights)] <- 1 # reads with f5 sequence not in names(p5bias)
-  f3_length <- nchar(names(n3bias)[1])
-  f3_seq <- substr(fp_seq, start=nchar(fp_seq)-f3_length+1, stop=nchar(fp_seq))
-  f3_weights <- n3bias[match(f3_seq, names(n3bias))]
-  f3_weights[is.na(f3_weights)] <- 1 # reads with f3 sequence not in names(n3bias)
-  # correct counts
-  fp_weights <- fp_weights / (f5_weights * f3_weights)
-  # append column to .sam file
-  system(paste(subset_command, ">", file.path(tmp_dir, paste0(tmp_fname, ".tmp"))))
-  write.table(fp_weights, file=file.path(tmp_dir, paste0(tmp_fname, ".wts")), 
-              quote=F, row.names=F, col.names=F)
-  system(paste("paste", file.path(tmp_dir, paste0(tmp_fname, ".tmp")), 
-               file.path(tmp_dir, paste0(tmp_fname, ".wts")), ">", file.path(tmp_dir, tmp_fname)))
-  system(paste("rm", file.path(tmp_dir, paste0(tmp_fname, ".tmp")), file.path(tmp_dir, paste0(tmp_fname, ".wts"))))
-}
-
-correct_bias_sam <- function(sam_fname, p5bias, n3bias, replace_weights=F, tmp_dir, new_fname,
-                             chunk_size=1e6, num_cores=NULL) {
-  # add column to .sam alignment file
-  ## sam_fname: character; file.path to .sam alignment file
-  ## p5bias: named numeric vector; fold change values, relative to reference level
-  ## n3bias: named numeric vector; fold change values, relative to reference level
-  ## replace_weights: logical; whether .sam alignment has existing weights (RSEM)
-  ## tmp_dir: character; file.path to directory for temporary files
-  ## new_fname: character; file.path for corrected .sam file output
-  ## chunk_size: integer; number of lines of .sam file to process at a time
-  ## num_cores: integer; number of cores to parallelize over
-  # create temporary directory
-  if(!dir.exists(tmp_dir)) {dir.create(tmp_dir)}
-  # define chunks to be processed by correct_bias_sam_chunk()
-  num_lines <- as.numeric(strsplit(system(paste("wc -l", sam_fname), intern=T), split=" ")[[1]][1])
-  num_header_lines <- as.numeric(strsplit(system(paste("grep ^@", sam_fname, "| wc -l"), intern=T), split=" ")[[1]][1])
-  chunk_starts <- seq(from=num_header_lines+1, to=num_lines, by=chunk_size)
-  chunk_ends <- chunk_starts + chunk_size - 1
-  chunk_ends[length(chunk_ends)] <- num_lines
-  chunk_names <- paste0("chunk_", seq.int(length(chunk_starts)), ".sam")
-  # parallelize processing
-  if(is.null(num_cores)) {
-    num_cores <- parallel::detectCores()-8
-  }
-  cl <- parallel::makeCluster(num_cores)
-  doParallel::registerDoParallel(cl)
-  foreach(tmp_start=chunk_starts, tmp_end=chunk_ends, tmp_fname=chunk_names,
-          .export=c("correct_bias_sam_chunk"), .inorder=F, .errorhandling='pass') %dopar% {
-            correct_bias_sam_chunk(sam_fname, p5bias, n3bias, tmp_start, tmp_end, replace_weights,
-                                   tmp_dir, tmp_fname)
-            return(tmp_start)
-          }
-  parallel::stopCluster(cl)
-  # merge .sam header and chunks
-  system(paste("head -n", num_header_lines, sam_fname, ">", file.path(tmp_dir, "header.sam")))
-  system(paste("cat", file.path(tmp_dir, "header.sam"), 
-               paste0(sapply(chunk_names, function(x) file.path(tmp_dir, x)), collapse=" "), ">", new_fname))
-  corrected_num_lines <- as.numeric(strsplit(system(paste("wc -l", new_fname), intern=T), split=" ")[[1]][1])
-  if(corrected_num_lines != num_lines) {print("LINES MISSING")}
-  system(paste("rm -r", tmp_dir))
 }
 
 count_by_codon <- function(dat) {
