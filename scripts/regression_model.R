@@ -1,8 +1,7 @@
 model_frame_by_size <- function(bam_fname, transcript_fa_fname, transcript_length_fname, offsets_fname,
                                 min_prop=0.9, num_regression_genes=100, f5_length=3, f3_length=3, 
                                 model=formula(count ~ transcript + A + P + E + f5 + f3), 
-                                plot_titles="", save_models=F, output_dir="",
-                                trunc5=20, trunc3=20, num_f5_codons=6, num_f3_codons=6) {
+                                plot_title="", trunc5=20, trunc3=20, num_f5_codons=6, num_f3_codons=6) {
   # wrapper function
   ## bam_fname: character; file.path to .bam alignment file
   ## transcript_fa_fname: character; file path to transcriptome .fa file
@@ -23,6 +22,7 @@ model_frame_by_size <- function(bam_fname, transcript_fa_fname, transcript_lengt
   # 1. load .bam alignment
   footprints <- load_bam(bam_fname, transcript_length_fname, offsets_fname)
   # 2. compute proportion of footprints per d5/d3 subset
+  print("Computing subsets")
   d5_d3 <- count_d5_d3(footprints)
   d5_d3_subsets <- d5_d3$counts[1:(which(d5_d3$counts$proportion>min_prop)[1]), c("d5", "d3")]
   subset_names <- sapply(seq(nrow(d5_d3_subsets)),
@@ -38,7 +38,7 @@ model_frame_by_size <- function(bam_fname, transcript_fa_fname, transcript_lengt
                                d5_d3_subsets=d5_d3_subsets, f5_length=f5_length, f3_length=f3_length,
                                which_transcripts=top_transcripts)
   print("Counting footprints")
-  regression_data <- count_footprints(footprints, regression_data)
+  regression_data$count <- count_footprints(footprints, regression_data)
   # 4. compute regression
   subset_data <- lapply(seq(nrow(d5_d3_subsets)),
                         function(x) {
@@ -47,20 +47,14 @@ model_frame_by_size <- function(bam_fname, transcript_fa_fname, transcript_lengt
   print("Computing regression models")
   subset_models <- lapply(subset_data, function(x) { MASS::glm.nb(model, data=x, model=F) })
   names(subset_models) <- subset_names
-  if(save_models) { save(subset_models, file=file.path(output_dir, "subset_models.Rda")) }
-  # 5. pull regression coefficients
-  subset_coefs <- sapply(subset_models, function(x) coef(x))
-  colnames(subset_coefs) <- subset_names
-  # 6. correct biased recovery
-  print("Correcting biased recovery")
+  # 5. evaluate bias correction
+  print("Evaluating bias correction")
   subset_data <- do.call(rbind,
                          lapply(seq(nrow(d5_d3_subsets)),
                                 function(x) {
                                   correct_bias(subset_data[[x]], subset_models[[x]])
                                 }))
-  # 7. evaluate bias correction
   transcript_lengths <- load_lengths(transcript_length_fname)
-  print("Evaluating bias correction")
   leaveOneOut_codon_corr <- evaluate_bias(subset_data, transcript_fa_fname, 
                                           unique(transcript_lengths$utr5_length),
                                           unique(transcript_lengths$utr3_length),
@@ -71,10 +65,12 @@ model_frame_by_size <- function(bam_fname, transcript_fa_fname, transcript_lengt
                                        trunc5, trunc3, num_f5_codons, num_f3_codons, type="nt")
   leaveOneOut_codon_plot <- plot_bias(leaveOneOut_codon_corr, plot_title)
   leaveOneOut_nt_plot <- plot_bias(leaveOneOut_nt_corr, plot_title)
-  # 8. write corrected .sam alignment file
-  ### INSERT CODE HERE
-  # 9. return output
+  # 7. correct footprints
+  print("Correcting footprint counts")
+  footprints <- correct_bias_bam(footprints, subset_models)
+  # 8. return output
   return(list(footprints=footprints, regression_data=subset_data, 
-              subsets=d5_d3$counts, subsets_plot=d5_d3$plot, regression_coefs=subset_coefs,
+              subsets=d5_d3$counts, models=subset_models, 
+              subsets_plot=d5_d3$plot, 
               codon_corr_plot=leaveOneOut_codon_plot, nt_corr_plot=leaveOneOut_nt_plot))
 }

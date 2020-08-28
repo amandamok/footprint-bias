@@ -1,79 +1,76 @@
-## requires libraries: parallel, doParallel, foreach, reshape, prodlim, Rsamtools
+## requires libraries: parallel, doParallel, foreach, reshape, prodlim, Rsamtools, ggplot2
 
 library(foreach)
+library(ggplot2)
 
-load_lengths <- function(lengths_fname) {
-  # load transcript lengths table
-  ## length_fname: character; file path to transcript lengths file
-  transcript_lengths <- read.table(lengths_fname, stringsAsFactors=F,
-                                   col.names=c("transcript", "utr5_length", "cds_length", "utr3_length"))
-  return(transcript_lengths)
-}
-
-load_fa <- function(transcript_fa_fname) {
-  # load transcript sequences from genome .fa file
-  ## transcripts_fa_fname: character; file path to transcriptome .fa file
-  raw_text <- readLines(transcript_fa_fname)
-  transcript_startLines <- grep(">", raw_text)
-  num_transcripts <- length(transcript_startLines)
-  transcript_names <- sapply(transcript_startLines,
-                             function(x) {
-                               gsub(">", "", strsplit(raw_text[x], split=" ")[[1]][1])
-                             })
-  transcript_startLines <- c(transcript_startLines, length(raw_text)+1) # add extra line for bookkeeping
-  transcript_sequences <- sapply(1:num_transcripts,
-                                 function(x) {
-                                   startLine <- transcript_startLines[x]+1
-                                   endLine <- transcript_startLines[x+1]-1
-                                   transcriptSequence <- paste(raw_text[startLine:endLine], collapse="")
-                                   return(transcriptSequence)
-                                 })
-  names(transcript_sequences) <- transcript_names
-  return(transcript_sequences)
-}
-
-get_codons <- function(transcript_name, cod_idx, utr5_length, transcript_seq) {
-  # return codons corresponding to A-, P-, and E-site 
-  # for footprint originating from transcript_name and A site codon cod_idx
-  ## transcript_name: character; correspond to names(transcript_seq)
-  ## cod_idx: integer; codon index for A site codon
-  ## utr5_legthn: integer; length of 5' utr region in transcript sequence
-  ## transcript_seq: character vector; transcript (+ 5' and 3' UTR regions) sequences
-  A_start <- utr5_length + 3*(cod_idx-1) + 1
-  A_end <- utr5_length + 3*cod_idx
-  A_codon <- substr(transcript_seq[transcript_name], A_start, A_end)
-  P_start <- utr5_length + 3*(cod_idx-2) + 1
-  P_end <- utr5_length + 3*(cod_idx-1)
-  P_codon <- substr(transcript_seq[transcript_name], P_start, P_end)
-  E_start <- utr5_length + 3*(cod_idx-3) + 1
-  E_end <- utr5_length + 3*(cod_idx-2)
-  E_codon <- substr(transcript_seq[transcript_name], E_start, E_end)
-  codons <- c(A_codon, P_codon, E_codon)
-  names(codons) <- c("A", "P", "E")
-  return(codons)
-}
-
-get_bias_seq <- function(transcript_name, cod_idx, digest_length, utr5_length,
-                         transcript_seq, bias_region, bias_length=2) {
-  # get bias sequence at end of footprint
-  ## transcript_name: character; transcript name, corresponds with item in names(transcript_seq)
-  ## cod_idx: integer; index of A site codon
-  ## digest_length: integer; d5 or d3 length between A site and footprint end
-  ## utr5_length: integer; length of 5' UTR region (from lengths file)
-  ## transcript_seq: character vector; transcript sequences (+ 5' and 3' UTR regions)
-  ## bias_region: character; f5 or f3 (corresponding to 5' or 3' bias sequence)
-  ## bias_length: integer; length of bias sequence
-  if(bias_region=="f5") {
-    seq_start <- utr5_length + 3*(cod_idx-1)+1 - digest_length
-    seq_end <- seq_start + bias_length - 1
+load_bam <- function(bam_fname, transcript_length_fname, offsets_fname, full=F,
+                     f5_length=3, f3_length=3) {
+  # calculate proportion of footprints within each 5' and 3' digest length combination
+  ## bam_fname: character; file.path to .bam alignment file
+  ## transcript_length_fname: character; file path to transcriptome lengths file
+  ## offsets_fname: character; file.path to offset / A site assignment rules .txt file
+  ## full: logical; whether to import all fields in .bam alignment file
+  ## f5_length: integer; length of 5' bias region
+  ## f3_length: integer; length of 3' bias region
+  # 1. read in footprints
+  bam_file <- Rsamtools::BamFile(bam_fname)
+  if(full) {
+    features <- c("qname", "flag", "rname", "pos", "mapq", 
+                  "cigar", "rnext", "pnext", "tlen", "seq", "qual")
   } else {
-    if(bias_region=="f3") {
-      seq_end <- utr5_length + 3*cod_idx + digest_length
-      seq_start <- seq_end - bias_length + 1
-    }
+    features <- c("rname", "pos", "seq", "qwidth")
   }
-  bias_seq <- substr(transcript_seq[transcript_name], seq_start, seq_end)
-  return(bias_seq)
+  bam_param <- Rsamtools::ScanBamParam(tag=c("ZW", "MD"), what=features)
+  alignment <- data.frame(Rsamtools::scanBam(bam_file, param=bam_param)[[1]])
+  num_footprints <- nrow(alignment)
+  print(paste("Read in", num_footprints, "total footprints"))
+  print(paste("... Removing", 
+              sum(is.na(alignment$rname)), 
+              paste0("(", round(sum(is.na(alignment$rname)) / num_footprints * 100, 1), "%)"),
+              "unaligned footprints"))
+  alignment <- subset(alignment, !is.na(alignment$rname))
+  # 2. assign 5' UTR lengths
+  transcript_length <- load_lengths(transcript_length_fname)
+  alignment$utr5_length <- transcript_length$utr5_length[match(alignment$rname, 
+                                                               transcript_length$transcript)]
+  # 3. calculate frame
+  alignment$frame <- (alignment$pos - alignment$utr5_length - 1) %% 3
+  # 4. calculate 5' and 3' digest lengths
+  offsets <- load_offsets(offsets_fname)
+  alignment$d5 <- offsets$offset[prodlim::row.match(alignment[,c("frame", "qwidth")], 
+                                                    offsets[c("frame", "length")])]
+  print(paste("... Removing", 
+              sum(is.na(alignment$d5)), 
+              paste0("(", round(sum(is.na(alignment$d5)) / num_footprints * 100, 1), "%)"), 
+              "footprints outside A site offset definitions"))
+  alignment <- subset(alignment, !is.na(alignment$d5))
+  # 5. calculate 3' digest lengths
+  alignment$d3 <- with(alignment, qwidth - d5 - 3)
+  # 6. calculate cod_idx, remove footprints mapped outside coding region
+  alignment$cod_idx <- with(alignment, (pos + d5 - utr5_length + 2) / 3)
+  alignment$cds_length <- transcript_length$cds_length[match(alignment$rname, 
+                                                             transcript_length$transcript)]/3
+  outside_cds <- ((alignment$cod_idx < 0) | (alignment$cod_idx > alignment$cds_length))
+  print(paste("... Removing", 
+              sum(outside_cds),
+              paste0("(", round(sum(outside_cds) / num_footprints * 100, 1), "%)"), 
+              "footprints outside CDS"))
+  alignment <- subset(alignment, !outside_cds)
+  # 7. pull bias sequences
+  alignment$f5 <- substr(alignment$seq, 1, f5_length)
+  alignment$f3 <- mapply(substr, alignment$seq, alignment$qwidth-f3_length+1, alignment$qwidth)
+  invalid_bias_seq <- (grepl("N", alignment$f5) | grepl("N", alignment$f3))
+  print(paste("... Removing", 
+              sum(invalid_bias_seq), 
+              paste0("(", round(sum(invalid_bias_seq) / num_footprints * 100, 1), "%)"),
+              "footprints with N in bias region"))
+  alignment <- subset(alignment, !invalid_bias_seq)
+  alignment$f5 <- factor(alignment$f5)
+  alignment$f3 <- factor(alignment$f3)
+  # return data
+  alignment <- alignment[, c("rname", "cod_idx", "d5", "d3", "f5", "f3", "tag.ZW")]
+  colnames(alignment) <- c("transcript", "cod_idx", "d5", "d3", "f5", "f3", "count")
+  return(alignment)
 }
 
 init_data <- function(transcript_fa_fname, transcript_length_fname,
@@ -133,68 +130,6 @@ init_data <- function(transcript_fa_fname, transcript_length_fname,
   return(dat)
 }
 
-load_offsets <- function(offsets_fname) {
-  # load A site offset rules
-  ## offsets_fname: character; file.path to offset / A site assignment rules .txt file
-  ## rownames: footprint length
-  ## colnames: frame (0, 1, 2)
-  offsets <- read.table(offsets_fname, header=T)
-  offsets <- data.frame(frame=as.vector(mapply(rep, 0:2, nrow(offsets))),
-                        length=rep(as.numeric(rownames(offsets)), 3),
-                        offset=c(offsets$frame_0, offsets$frame_1, offsets$frame_2))
-  return(offsets)
-}
-
-load_bam <- function(bam_fname, transcript_length_fname, offsets_fname) {
-  # calculate proportion of footprints within each 5' and 3' digest length combination
-  ## bam_fname: character; file.path to .bam alignment file
-  ## transcript_length_fname: character; file path to transcriptome lengths file
-  ## offsets_fname: character; file.path to offset / A site assignment rules .txt file
-  # read in footprints
-  bam_file <- Rsamtools::BamFile(bam_fname)
-  bam_param <- Rsamtools::ScanBamParam(tag=c("ZW", "MD"), 
-                                       what=c("rname", "pos", "seq", "qwidth"))
-  alignment <- data.frame(Rsamtools::scanBam(bam_file, param=bam_param)[[1]])
-  num_footprints <- nrow(alignment)
-  print(paste("Read in", num_footprints, "total footprints"))
-  print(paste("... Removing", 
-              sum(is.na(alignment$rname)), 
-              paste0("(", round(sum(is.na(alignment$rname)) / num_footprints * 100, 1), "%)"),
-              "unaligned footprints"))
-  alignment <- subset(alignment, !is.na(alignment$rname))
-  # assign 5' UTR lengths
-  transcript_length <- load_lengths(transcript_length_fname)
-  alignment$utr5_length <- transcript_length$utr5_length[match(alignment$rname, 
-                                                               transcript_length$transcript)]
-  # calculate frame
-  alignment$frame <- (alignment$pos - alignment$utr5_length - 1) %% 3
-  # calculate 5' and 3' digest lengths
-  offsets <- load_offsets(offsets_fname)
-  alignment$d5 <- offsets$offset[prodlim::row.match(alignment[,c("frame", "qwidth")], 
-                                                    offsets[c("frame", "length")])]
-  print(paste("... Removing", 
-              sum(is.na(alignment$d5)), 
-              paste0("(", round(sum(is.na(alignment$d5)) / num_footprints * 100, 1), "%)"), 
-              "footprints outside A site offset definitions"))
-  alignment <- subset(alignment, !is.na(alignment$d5))
-  # calculate 3' digest lengths
-  alignment$d3 <- with(alignment, qwidth - d5 - 3)
-  # calculate cod_idx, remove footprints mapped outside coding region
-  alignment$cod_idx <- with(alignment, (pos + d5 - utr5_length + 2) / 3)
-  alignment$cds_length <- transcript_length$cds_length[match(alignment$rname, 
-                                                             transcript_length$transcript)]/3
-  outside_cds <- ((alignment$cod_idx < 0) | (alignment$cod_idx > alignment$cds_length))
-  print(paste("... Removing", 
-              sum(outside_cds),
-              paste0("(", round(sum(outside_cds) / num_footprints * 100, 1), "%)"), 
-              "footprints outside CDS"))
-  alignment <- subset(alignment, !outside_cds)
-  # return data
-  alignment <- alignment[, c("rname", "cod_idx", "d5", "d3", "seq", "tag.ZW")]
-  colnames(alignment) <- c("transcript", "cod_idx", "d5", "d3", "seq", "count")
-  return(alignment)
-}
-
 count_d5_d3 <- function(bam_dat, plot_title="") {
   # count number of footprints per d5/d3 combination
   ## bam_dat: data.frame; output from load_bam()
@@ -212,22 +147,24 @@ count_d5_d3 <- function(bam_dat, plot_title="") {
   return(list(counts=subset_count, plot=subset_count_plot))
 }
 
-count_footprints <- function(bam_dat, regression_data) {
+count_footprints <- function(bam_dat, regression_data, which_column="count") {
   # count up footprints by transcript, A site, and digest lengths
   ## bam_dat: data.frame; output from load_bam()
   ## regression_data: data.frame; output from init_data()
+  ## which_column: character; name of column containing counts
   # count up footprints
   bam_dat <- subset(bam_dat, transcript %in% levels(regression_data$transcript))
-  alignments <- aggregate(count ~ transcript + cod_idx + d5 + d3, data=bam_dat, FUN=sum)
+  bam_dat <- aggregate(formula(paste(which_column, "~ transcript + cod_idx + d5 + d3")), 
+                          data=bam_dat, FUN=sum, na.rm=T)
   # add counts to regression data.frame
   features <- c("transcript", "cod_idx", "d5", "d3")
-  match_rows <- prodlim::row.match(alignments[, features], regression_data[, features])
-  alignments <- subset(alignments, !is.na(match_rows))
-  match_rows <- match_rows[!is.na(match_rows)]
-  regression_data$count[match_rows] <- alignments$count
-  return(regression_data)
+  match_rows <- prodlim::row.match(regression_data[, features], bam_dat[, features])
+  counts <- bam_dat[match_rows, which_column]
+  counts[is.na(counts)] <- 0
+  # counts <- rep(0, nrow(regression_data))
+  # counts[!is.na(match_rows)] <- bam_dat[match_rows[!is.na(match_rows)], which_column]
+  return(counts)
 }
-
 
 # archive -----------------------------------------------------------------
 
