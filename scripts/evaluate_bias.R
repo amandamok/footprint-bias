@@ -29,8 +29,7 @@ evaluate_bias <- function(dat, which_column="count", transcripts_fa_fname,
                                  tmp_subset <- subset(tmp_subset,
                                                       cod_idx > trunc5 & cod_idx <= (num_codons-trunc3))
                                  # scale per-codon counts by transcript mean
-                                 tmp_subset$count <- tmp_subset$count / mean(tmp_subset$count)
-                                 tmp_subset$corrected_count <- tmp_subset$corrected_count / mean(tmp_subset$corrected_count)
+                                 tmp_subset[, which_column] <- tmp_subset[, which_column] / mean(tmp_subset[, which_column])
                                  # return truncated & scaled counts
                                  return(tmp_subset)
                                })
@@ -57,7 +56,7 @@ evaluate_bias <- function(dat, which_column="count", transcripts_fa_fname,
                           paste0(rep(c("E", "P", "A"), each=3), 0:2),
                           paste0("p", 1:(3*num_f5_codons)))
   }
-  count_dat <- data.frame(count = cts_by_codon$count, codons)
+  count_dat <- data.frame(count = cts_by_codon[, which_column], codons)
   # 4. full model
   count_full_cor <- cor(count_dat$count, predict(lm(count ~ ., data=count_dat)))
   # 5. leave-one-out models
@@ -78,20 +77,12 @@ plot_bias <- function(model_cor, plot_title="", plot_subtitle="", type="codon") 
   ## plot_title: character; title for output plot
   ## plot_subtitle: character; subtitle for output plot
   ## type: character; one of "codon" or "nt"
-  names(model_cor) <- sub("n", "-", rownames(model_cor))
-  names(model_cor) <- sub("p", "", rownames(model_cor))
-  cor_diff <- data.frame(diff=(model_cor - model_cor[1])[-1],
+  names(model_cor) <- sub("n", "-", names(model_cor))
+  names(model_cor) <- sub("p", "", names(model_cor))
+  cor_diff <- data.frame(diff=(model_cor[1] - model_cor)[-1],
                          site=names(model_cor)[-1])
   cor_diff$site <- factor(cor_diff$site, levels=names(model_cor)[-1])
   bias_plot <- ggplot(cor_diff, aes(x=site, y=diff)) + geom_bar(stat="identity") + 
-    theme_bw() + xlab("position") + ylab(expression(Delta*" correlation")) + ggtitle(plot_title)
-  cor_diff <- data.frame(diff = c(model_cor$uncorrected[1] - model_cor$uncorrected[2:nrow(model_cor)],
-                                  model_cor$corrected[1] - model_cor$corrected[2:nrow(model_cor)]),
-                         site = rownames(model_cor)[-1],
-                         type = rep(colnames(model_cor), each=nrow(model_cor)-1))
-  cor_diff$site <- factor(cor_diff$site, levels=rownames(model_cor)[-1])
-  cor_diff$type <- factor(cor_diff$type, levels=colnames(model_cor))
-  bias_plot <- ggplot(cor_diff, aes(x=site, y=diff)) + geom_bar(stat="identity") + facet_wrap(~type) +
     theme_bw() + xlab("position") + ylab(expression(Delta*" correlation")) + 
     ggtitle(plot_title, subtitle=plot_subtitle)
   if(type=="nt") {

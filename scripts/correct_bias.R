@@ -1,10 +1,11 @@
 ### requires libraries: prodlim
 
-correct_bias_sim <- function(dat, p5bias, n3bias) {
+correct_bias_sim <- function(dat, p5bias, n3bias, which_column="count") {
   # predict counts if bias sequences were set to reference level, using simulation parameters
   ## dat: data.frame containing regression predictors
   ## p5bias: named numeric vector; recovery probabilities from simulation
   ## n3bias: named numeric vector; recovery probabilities from simulation
+  ## which_column: character; name of column containing uncorrected counts
   # 1. establish f5 scaling factors
   f5_ref_level <- levels(dat$f5)[1]
   f5_coefs <- p5bias / p5bias[f5_ref_level]
@@ -14,17 +15,18 @@ correct_bias_sim <- function(dat, p5bias, n3bias) {
   f3_coefs <- n3bias / n3bias[f3_ref_level]
   f3_coefs[f3_coefs==0] <- 1
   # 3. calculate corrected counts
-  corrected_count <- dat$count / (f5_coefs[as.character(dat$f5)] * f3_coefs[as.character(dat$f3)])
+  corrected_count <- dat[, which_column] / (f5_coefs[as.character(dat$f5)] * f3_coefs[as.character(dat$f3)])
   # 4. rescale predicted counts so they sum to original footprint count
-  corrected_count <- corrected_count * sum(dat$count) / sum(corrected_count)
+  corrected_count <- corrected_count * sum(dat[, which_column]) / sum(corrected_count, na.rm=T)
   # 5. return dat with corrected counts
   return(corrected_count)
 }
 
-correct_bias <- function(dat, fit) {
+correct_bias <- function(dat, fit, which_column="count") {
   # predict counts if bias sequences were set to reference level, allowing residuals
   ## dat: data.frame containing regression predictors
   ## fit: glm object ; output from MASS::glm.nb()
+  ## which_column: character; name of column containing uncorrected counts
   # 1. establish f5 scaling factors
   f5_coefs <- coef(fit)[match(paste0("f5", fit$xlevels$f5), names(coef(fit)))]
   names(f5_coefs) <- fit$xlevels$f5
@@ -36,17 +38,18 @@ correct_bias <- function(dat, fit) {
   f3_coefs[is.na(f3_coefs)] <- 0
   f3_coefs <- exp(f3_coefs)
   # 3. calculate corrected counts
-  corrected_count <- dat$count / (f5_coefs[as.character(dat$f5)] * f3_coefs[as.character(dat$f3)])
+  corrected_count <- dat[, which_column] / (f5_coefs[as.character(dat$f5)] * f3_coefs[as.character(dat$f3)])
   # 4. rescale predicted counts so they sum to original footprint count
-  corrected_count <- corrected_count * sum(dat$count) / sum(corrected_count)
-  # 5. return dat with corrected counts
+  corrected_count <- corrected_count * sum(dat[, which_column]) / sum(corrected_count, na.rm=T)
+  # 5. return corrected counts
   return(corrected_count)
 }
 
-correct_bias_interxn <- function(dat, intrxn_fit) {
+correct_bias_interxn <- function(dat, intrxn_fit, which_column="count") {
   # correct biased counts with coefficients from interaction regression model
   ## dat: data.frame containing regression predictors
   ## intrxn_fit: glm object ; output from MASS::glm.nb()
+  ## which_column: character; name of column containing uncorrected counts
   fit_coefs <- coef(intrxn_fit)
   # 1. establish f5 scaling factors
   f5_ref <- intrxn_fit$xlevels$f5[1]
@@ -95,17 +98,18 @@ correct_bias_interxn <- function(dat, intrxn_fit) {
   # 3. calculate corrected counts
   f5_indices <- prodlim::row.match(dat[, c("f5", "d5")], f5_coefs[, c("f5", "d5")])
   f3_indices <- prodlim::row.match(dat[, c("f3", "d3")], f3_coefs[, c("f3", "d3")])
-  corrected_count <- dat$count / (f5_coefs$correction[f5_indices] * f3_coefs$correction[f3_indices])
+  corrected_count <- dat[, which_column] / (f5_coefs$correction[f5_indices] * f3_coefs$correction[f3_indices])
   # 4. rescale predicted counts so they sum to original footprint count
-  corrected_count <- corrected_count * sum(dat$count) / sum(corrected_count, na.rm=T)
-  # 5. return dat with corrected counts
+  corrected_count <- corrected_count * sum(dat[, which_column]) / sum(corrected_count, na.rm=T)
+  # 5. return corrected counts
   return(corrected_count)
 }
 
-correct_bias_frameBySize <- function(dat, nb_fits) {
+correct_bias_frameBySize <- function(dat, nb_fits, which_column="count") {
   # correct counts for individual footprints
   ## dat: data.frame containing regression predictors
   ## nb_fits: list of glm objects ; names correspond to d5/d3 subsets
+  ## which_column: character; name of column containing uncorrected counts
   # 1. establish f5 scaling factors
   f5_coefs <- do.call(rbind,
                       lapply(seq_along(nb_fits),
@@ -143,9 +147,9 @@ correct_bias_frameBySize <- function(dat, nb_fits) {
   # 3. calculate corrected counts
   f5_indices <- prodlim::row.match(dat[, c("d5", "d3", "f5")], f5_coefs[, c("d5", "d3", "f5")])
   f3_indices <- prodlim::row.match(dat[, c("d5", "d3", "f3")], f3_coefs[, c("d5", "d3", "f3")])
-  corrected_count <- dat$count / (f5_coefs$correction[f5_indices] * f3_coefs$correction[f3_indices])
+  corrected_count <- dat[, which_column] / (f5_coefs$correction[f5_indices] * f3_coefs$correction[f3_indices])
   # 4. rescale predicted counts so they sum to original footprint count
-  corrected_count <- corrected_count * sum(dat$count) / sum(corrected_count, na.rm=T)
-  # 5. return dat with corrected counts
+  corrected_count <- corrected_count * sum(dat[, which_column]) / sum(corrected_count, na.rm=T)
+  # 5. return corrected counts
   return(corrected_count)
 }
