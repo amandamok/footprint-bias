@@ -1,116 +1,87 @@
-# circligase II test
-# figure 2H
-# data: Lareau yeast, Green yeast
+library(ggplot2)
+library(here)
 
-# args <- commandArgs(trailingOnly = TRUE)
-# lareau_scores_fname = args[1] # 28mers only!
-# green_scores_fname = args[2] # 28mers only!
-# qpcr_fname = args[3] #qdat_summary_both.csv
-# out_fname = args[4]
+# load qPCR data ----------------------------------------------------------
 
-lareau_scores_fname <- "~/iXnos/results/lareau/s28_cod_n5p4_nt_n15p14/epoch40/codon_scores.tsv"
-green_scores_fname <- "~/iXnos/results/green/s28_cod_n5p4_nt_n15p14/epoch30/codon_scores.tsv"
+se <- function(x) { sd(x)/sqrt(length(x)) }
+
+oligos <- c("ATA", "TCC", "CCA", "CGT", "GAC", "GGG")
+names(oligos) <- c(1:3, 7:9)
+
+# read in qPCR data
 qpcr_fname <- "~/iXnos/wetlab_data/circligase_qpcr.csv"
+raw_data <- read.csv(qpcr_fname, stringsAsFactors=F)
+raw_data <- subset(raw_data, as.character(raw_data$Oligo) %in% names(oligos))
+raw_data$end_seq <- oligos[as.character(raw_data$Oligo)]
+raw_data$primer_type <- ifelse(raw_data$PRIMERS == "NM827_NM828", "circ", "cont")
 
-codonrange1 = -5
-codonrange2 = 4
+# calculate efficiency per primer
+eff <- aggregate(eff ~ primer_type, data=raw_data, FUN=mean)
 
-oligos = list( "1" = "ATA", "2" = "TCC", "3" = "CCA", "7" = "CGT", "8" = "GAC", "9" = "GGG")
+# calcaulate amplification
+raw_data$primer_eff <- eff$eff[match(raw_data$primer_type, eff$primer)]
+raw_data$amp <- raw_data$primer_eff^raw_data$Cy0
 
-codons = sort( apply( expand.grid( c("A","C","G","T"), c("A","C","G","T"), c("A","C","G","T")), 1, paste, collapse = "" ))
-pos = codonrange1:codonrange2
+# average across replicates
+qpcr_data <- aggregate(amp ~ end_seq + primer_type + CL, data=raw_data, FUN=mean)
+qpcr_data$amp_se <- aggregate(amp ~ end_seq + primer_type + CL, data=raw_data, FUN=se)$amp
+qpcr_data <- reshape(qpcr_data, v.names=c("amp", "amp_se"), idvar=c("end_seq", "CL"),
+                     timevar="primer_type", direction="wide")
 
-cl2 = read.delim( lareau_scores_fname, header=F, stringsAsFactors = F, colClasses = "numeric", row.names = codons, col.names = pos, na.strings="nan")
-cl1 = read.delim( green_scores_fname, header=F, stringsAsFactors = F, colClasses = "numeric", row.names = codons, col.names = pos, na.strings="nan")
-
-tested = c("ATA", "TCC", "CCA", "CGT", "GAC", "GGG")
-
-scores = data.frame( cl1.green = round( cl1[tested,]$X.5, 3 ), 
-                     cl2.lareau = round( cl2[tested,]$X.5, 3 )
-)
-row.names(scores) = tested
-
-qdat = read.delim( qpcr_fname, header=T, sep=",")
-qdat = droplevels( qdat[ qdat$Oligo != "804", ] )
-
-circprim = "NM827_NM828"
-contprim = "NM828_804_LC_1"
-
-se = function(x) { sd(x)/sqrt(length(x)) }
-
-## CALCULATE EFFICIENCY AVERAGES
-eff = tapply(qdat$eff, qdat$PRIMERS, mean)
-eff.se = tapply(qdat$eff, qdat$PRIMERS, se)
-
-cl1.cont = qdat[ qdat$PRIMERS == contprim & qdat$CL == 1, ]
-cl1.circ = qdat[ qdat$PRIMERS == circprim & qdat$CL == 1, ]
-cl2.cont = qdat[ qdat$PRIMERS == contprim & qdat$CL == 2, ]
-cl2.circ = qdat[ qdat$PRIMERS == circprim & qdat$CL == 2, ]
-
-## amplification amounts
-cl1.circ.amp = eff[circprim]^cl1.circ$Cy0
-cl2.circ.amp = eff[circprim]^cl2.circ$Cy0
-cl1.cont.amp = eff[contprim]^cl1.cont$Cy0
-cl2.cont.amp = eff[contprim]^cl2.cont$Cy0
-
-cl1.circ.mean = tapply( cl1.circ.amp, cl1.circ$Oligo, mean)
-cl2.circ.mean = tapply( cl2.circ.amp, cl2.circ$Oligo, mean)
-cl1.cont.mean = tapply( cl1.cont.amp, cl1.cont$Oligo, mean)
-cl2.cont.mean = tapply( cl2.cont.amp, cl2.cont$Oligo, mean)
-
-names(cl1.circ.mean) = unlist(oligos[names(cl1.circ.mean)]) # so we can sanity-check that scores and results are paired properly
-names(cl2.circ.mean) = unlist(oligos[names(cl2.circ.mean)])
-names(cl1.cont.mean) = unlist(oligos[names(cl1.cont.mean)])
-names(cl2.cont.mean) = unlist(oligos[names(cl2.cont.mean)])
-
-# ratios
-cl1.ratio = cl1.cont.mean/cl1.circ.mean
-cl2.ratio = cl2.cont.mean/cl2.circ.mean
-ratio.max = max( cl1.ratio, cl2.ratio )
-
-cl1.ratio = cl1.ratio/ratio.max
-cl2.ratio = cl2.ratio/ratio.max
+# calculate ratios
+qpcr_data$ratio <- with(qpcr_data, amp.cont/amp.circ)
+qpcr_data$ratio <- qpcr_data$ratio / max(qpcr_data$ratio)
 
 # error propagation
-cl1.circ.se = tapply( cl1.circ.amp, cl1.circ$Oligo, se)
-cl2.circ.se = tapply( cl2.circ.amp, cl2.circ$Oligo, se)
-cl1.cont.se = tapply( cl1.cont.amp, cl1.cont$Oligo, se)
-cl2.cont.se = tapply( cl2.cont.amp, cl2.cont$Oligo, se)
+qpcr_data$se_percent <- with(qpcr_data,
+                             sqrt( (amp_se.circ / amp.circ)^2 + (amp_se.cont / amp.cont)^2 ))
+qpcr_data$se_abs <- with(qpcr_data, ratio * se_percent)
 
-cl1.se.percent = sqrt( (cl1.circ.se / cl1.circ.mean)^2 + (cl1.cont.se / cl1.cont.mean)^2 )
-cl1.se.abs = cl1.ratio * cl1.se.percent
+# add regression coefficients ---------------------------------------------
 
-cl2.se.percent = sqrt( (cl2.circ.se / cl2.circ.mean)^2 + (cl2.cont.se / cl2.cont.mean)^2 )
-cl2.se.abs = cl2.ratio * cl2.se.percent
+plot_data <- lapply(c("green", "lareau", "weinberg"),
+                    function(expt) {
+                      expt_dir <- paste0(expt, "_20cds20_f5_2_f3_3")
+                      # load model fit
+                      model_obj <- paste0(expt, "_fit_150")
+                      load(file.path(here(), "expts", expt_dir, paste0(model_obj, ".Rda")))
+                      # check if 28mer frame 0 is baseline subset
+                      d5_ref <- get(model_obj)$xlevels$d5[1]
+                      d3_ref <- get(model_obj)$xlevels$d3[1]
+                      f5_header <- ifelse(d5_ref=="15" & sum(as.numeric(d5_ref), as.numeric(d3_ref), 3)==28,
+                                          "f5", "d515:f5")
+                      # pull coefficients from model
+                      model_coef <- data.frame(summary(get(model_obj))$coefficients)
+                      model_coef <- model_coef[match(paste0(f5_header, substr(oligos, 1, 2)),
+                                                     rownames(model_coef)),]
+                      model_coef$oligo <- oligos
+                      # compute fold-change and upper/lower bounds
+                      model_coef$FC <- with(model_coef, exp(Estimate))
+                      model_coef$FC_lower <- with(model_coef, exp(Estimate - Std..Error))
+                      model_coef$FC_upper <- with(model_coef, exp(Estimate + Std..Error))
+                      # return qpcr_data with added coefficients
+                      row_index <- match(qpcr_data$end_seq, model_coef$oligo)
+                      return(cbind(qpcr_data,
+                                   model_coef[row_index, grep("FC", colnames(model_coef))],
+                                   expt=expt))
+                    })
+plot_data <- do.call(rbind, plot_data)
+plot_data$CL <- paste("circligase", plot_data$CL)
+levels(plot_data$expt) <- c("Green", "Lareau", "Weinberg")
 
-ymax = max( cl1.ratio + cl1.se.abs, cl2.ratio + cl2.se.abs )
+corr_text <- unique(plot_data[, c("CL", "expt")])
+corr_text$label <- sapply(seq(nrow(corr_text)),
+                          function(x) {
+                            paste("cor =",
+                                  round(with(subset(plot_data, CL==corr_text$CL[x] & expt==corr_text$expt[x]),
+                                             cor(ratio, FC)),2))
+                          })
 
-ord = order(scores$cl2.lareau)
-up = ord[c(2,5)]
-down = ord[c(1,3,4,6)]
-
-# # pdf( out_fname, width=2, height=1.67, pointsize=7, useDingbats = F, bg = "white" )
-# #cairo_pdf( out_fname, width=2, height=1.67, pointsize=7 )
-# par( mex = 0.65 ) # sets margin stuff
-# par( mar = c(6,5.5,5,9) )
-# par( oma = c(0,1.5,1,0) )
-# par( lwd = 0.75 )
-# plot( scores$cl2.lareau, cl2.ratio,
-#       xlab = "bias score", ylab = "relative ligation", 
-#       #      xlim = c(-1, 1.25), 
-#       ylim = c(0,ymax),
-#       axes = F,
-#       pch = NA, bty = "n"
-# )
-# abline( lm(cl2.ratio ~ scores$cl2.lareau), col = "darkgray", lty = 3 )
-# axis(1, lwd = 0.75)
-# axis(2, at = c(0, 0.25, 0.5, 0.75, 1), labels = c(0, NA, 0.5, NA, 1), lwd = 0.75)
-# arrows( scores$cl2.lareau, cl2.ratio - cl2.se.abs,
-#         scores$cl2.lareau, cl2.ratio + cl2.se.abs,
-#         angle = 90, code = 3, length = 0.025, lwd = 0.75, col = "gray50" )
-# points( scores$cl2.lareau, cl2.ratio, pch=20, col = "blue" )
-# par( xpd = NA )
-# text( scores$cl2.lareau[down], cl2.ratio[down] - cl2.se.abs[down] - 0.075, labels = row.names(scores)[down], cex = 0.5, col = "gray50" )
-# text( scores$cl2.lareau[up], cl2.ratio[up] + cl2.se.abs[up] + 0.075, labels = row.names(scores)[up], cex = 0.5, col = "gray50" )
-# mtext( "G", font = 2, line = -3, side = 3, outer = T, adj = 0 ) 
-# # dev.off()
+ggplot(plot_data, aes(x=ratio, y=FC)) + geom_point() +
+  facet_grid(CL ~ expt, scales="free_y") +
+  geom_errorbar(aes(ymin=FC_lower, ymax=FC_upper)) +
+  geom_errorbarh(aes(xmin=ratio-se_abs, xmax=ratio+se_abs)) +
+  geom_smooth(method="lm", formula="y ~ x") +
+  geom_text(data=corr_text, mapping=aes(x=0.3, y=2.3, label=label)) +
+  theme_classic() + theme(panel.background = element_rect(fill = NA, color = "black")) +
+  xlab("in vitro ligation efficiency") + ylab(expression("exp("*beta*")"))

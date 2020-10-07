@@ -50,7 +50,7 @@ load_bam <- function(bam_fname, transcript_length_fname, offsets_fname, full=F,
   alignment$cod_idx <- with(alignment, (pos + d5 - utr5_length + 2) / 3)
   alignment$cds_length <- transcript_length$cds_length[match(alignment$rname,
                                                              transcript_length$transcript)]/3
-  outside_cds <- ((alignment$cod_idx < 0) | (alignment$cod_idx > alignment$cds_length))
+  outside_cds <- ((alignment$cod_idx <= 0) | (alignment$cod_idx > alignment$cds_length))
   print(paste("... Removing",
               sum(outside_cds),
               paste0("(", round(sum(outside_cds) / num_footprints * 100, 1), "%)"),
@@ -165,34 +165,3 @@ count_footprints <- function(bam_dat, regression_data, which_column="count") {
   # counts[!is.na(match_rows)] <- bam_dat[match_rows[!is.na(match_rows)], which_column]
   return(counts)
 }
-
-# archive -----------------------------------------------------------------
-
-# plot_profile <- function(regression_data, transcript_id, model_fit=NULL) {
-#   # plot ribosome profile (aggregated counts per codon position) for a transcript
-#   ## regression_data: data.frame; output by init_data() and count_footprints()
-#   ## transcript_id: character; name of transcript to be plotted
-#   ## model_fit: glm() object; output from performing regression
-#   # count up footprints per codon position
-#   data_subset <- subset(regression_data, transcript==transcript_id)
-#   data_subset_cts <- aggregate(count ~ transcript + cod_idx, data=data_subset, FUN=sum)
-#   data_subset_cts$type <- "data"
-#   # plot profile
-#   if(is.null(model_fit)) {
-#     profile_plot <- ggplot2::ggplot(data_subset_cts, aes(x=cod_idx, y=count)) + geom_line() +
-#       theme_bw() + xlab("codon position") + ylab("footprint count") + ggtitle(transcript_id)
-#   } else {
-#     data_pred <- predict(model_fit, newdata=data_subset, type="response")
-#     data_pred_cts <- cbind(data_subset, data_pred)
-#     data_pred_cts <- aggregate(data_pred ~ transcript + cod_idx, data=data_pred_cts, FUN=sum)
-#     data_pred_cts$type <-
-#       data_subset_cts$pred <- data_pred_cts$data_pred[prodlim::row.match(data_pred_cts[,c("transcript", "cod_idx")],
-#                                                                          data_subset_cts[,c("transcript", "cod_idx")])]
-#     data_subset_cts$type <- "model prediction"
-#     profile_plot <- ggplot2::ggplot(data_subset_cts) +
-#       geom_line(aes(x=cod_idx, y=count), col="black") +
-#       geom_line(aes(x=cod_idx, y=pred), col="red", alpha=0.5) +
-#       theme_bw() + xlab("codon position") + ylab("footprint count") + ggtitle(transcript_id) + labs(colour="")
-#   }
-#   return(profile_plot)
-# }
