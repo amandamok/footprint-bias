@@ -13,10 +13,10 @@ load_bam <- function(bam_fname, transcript_length_fname, offsets_fname, full=F,
   ## f5_length: integer; length of 5' bias region
   ## f3_length: integer; length of 3' bias region
   # 1. read in footprints
+  browser()
   bam_file <- Rsamtools::BamFile(bam_fname)
   if(full) {
-    features <- c("qname", "flag", "rname", "pos", "mapq",
-                  "cigar", "rnext", "pnext", "tlen", "seq", "qual")
+    features <- c("qname", "flag", "rname", "pos", "mapq", "cigar", "seq", "qual")
   } else {
     features <- c("rname", "pos", "seq", "qwidth")
   }
