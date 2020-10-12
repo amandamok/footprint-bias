@@ -1,22 +1,24 @@
 ## requires libraries: parallel, doParallel, foreach, reshape, prodlim, Rsamtools, ggplot2
 
+## requires get_bias_seq() from helper.R
+
 library(foreach)
 library(ggplot2)
 
-load_bam <- function(bam_fname, transcript_length_fname, offsets_fname, full=F,
-                     f5_length=3, f3_length=3) {
+load_bam <- function(bam_fname, transcript_length_fname, offsets_fname,
+                     f5_length=3, f3_length=3, full=F, nt_base=F) {
   # calculate proportion of footprints within each 5' and 3' digest length combination
   ## bam_fname: character; file.path to .bam alignment file
   ## transcript_length_fname: character; file path to transcriptome lengths file
   ## offsets_fname: character; file.path to offset / A site assignment rules .txt file
-  ## full: logical; whether to import all fields in .bam alignment file
   ## f5_length: integer; length of 5' bias region
   ## f3_length: integer; length of 3' bias region
+  ## full: logical; whether to import all fields in .bam alignment file
+  ##
   # 1. read in footprints
-  browser()
   bam_file <- Rsamtools::BamFile(bam_fname)
   if(full) {
-    features <- c("qname", "flag", "rname", "pos", "mapq", "cigar", "seq", "qual")
+    features <- c("qname", "flag", "rname", "pos", "mapq", "cigar", "seq", "qual", "qwidth")
   } else {
     features <- c("rname", "pos", "seq", "qwidth")
   }
@@ -67,9 +69,36 @@ load_bam <- function(bam_fname, transcript_length_fname, offsets_fname, full=F,
   alignment <- subset(alignment, !invalid_bias_seq)
   alignment$f5 <- factor(alignment$f5)
   alignment$f3 <- factor(alignment$f3)
+  # 8. return nt_base
+  if(nt_base) {
+    alignment$nt_base <- alignment$tag.MD
+    levels(alignment$nt_base) <- sapply(levels(alignment$nt_base),
+                                        function(x) {
+                                          ifelse(grepl("^0(A|T|C|G)", x), substr(x, 2, 2), "-")
+                                        })
+    print(paste("...",
+                sum(alignment$nt_base != "-"),
+                paste0("(", round(sum(alignment$nt_base != "-") / nrow(alignment) * 100, 1), "%)"),
+                "footprints with non-templated 5' base"))
+    print(paste("... ... A:",
+                sum(alignment$nt_base=="A"),
+                paste0("(", round(sum(alignment$nt_base=="A") / sum(alignment$nt_base!="-") * 100, 1), "%)")))
+    print(paste("... ... T:",
+                sum(alignment$nt_base=="A"),
+                paste0("(", round(sum(alignment$nt_base=="T") / sum(alignment$nt_base!="-") * 100, 1), "%)")))
+    print(paste("... ... C:",
+                sum(alignment$nt_base=="A"),
+                paste0("(", round(sum(alignment$nt_base=="C") / sum(alignment$nt_base!="-") * 100, 1), "%)")))
+    print(paste("... ... G:",
+                sum(alignment$nt_base=="A"),
+                paste0("(", round(sum(alignment$nt_base=="G") / sum(alignment$nt_base!="-") * 100, 1), "%)")))
+  }
   # return data
-  alignment <- alignment[, c("rname", "cod_idx", "d5", "d3", "f5", "f3", "tag.ZW")]
-  colnames(alignment) <- c("transcript", "cod_idx", "d5", "d3", "f5", "f3", "count")
+  colnames(alignment)[colnames(alignment)=="rname"] <- "transcript"
+  colnames(alignment)[colnames(alignment)=="tag.ZW"] <- "count"
+  subset_features <- c("transcript", "cod_idx", "d5", "d3", "f5", "f3", "count")
+  if(nt_base) { subset_features <- c(subset_features, "nt_base") }
+  if(!full) { alignment <- alignment[, subset_features] }
   return(alignment)
 }
 
