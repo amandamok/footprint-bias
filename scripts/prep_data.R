@@ -76,6 +76,7 @@ load_bam <- function(bam_fname, transcript_length_fname, offsets_fname,
                                         function(x) {
                                           ifelse(grepl("^0(A|T|C|G)", x), substr(x, 2, 2), "-")
                                         })
+    alignment$nt_base <- relevel(alignment$nt_base, ref="-")
     print(paste("...",
                 sum(alignment$nt_base != "-"),
                 paste0("(", round(sum(alignment$nt_base != "-") / nrow(alignment) * 100, 1), "%)"),

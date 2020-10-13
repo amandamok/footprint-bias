@@ -1,0 +1,27 @@
+# Genomic tRNA Database
+# tRNAscan-SE analysis of complete genomes
+# http://lowelab.ucsc.edu/GtRNAdb/Scere3/Scere3-stats.html
+# Isotype / Anticodon Counts
+
+Ala   : 17	  AGC: 11      GGC:         CGC:         TGC: 6     
+Gly   : 21	  ACC:         GCC: 16      CCC: 2       TCC: 3     
+Pro   : 12	  AGG: 2       GGG:         CGG:         TGG: 10    
+Thr   : 17	  AGT: 11      GGT:         CGT: 1       TGT: 5     
+Val   : 19	  AAC: 14      GAC:         CAC: 2       TAC: 3     
+Ser   : 18	  AGA: 11      GGA:         CGA: 1       TGA: 4       ACT:         GCT: 2     
+Arg   : 21	  ACG: 7       GCG:         CCG: 1       TCG:         CCT: 1       TCT: 12    
+Leu   : 21	  AAG:         GAG: 1       CAG:         TAG: 3       CAA: 10      TAA: 7     
+Phe   : 11	  AAA:         GAA: 11                              
+Asn   : 11	  ATT:         GTT: 11                              
+Lys   : 22	                            CTT: 14      TTT: 8     
+Asp   : 16	  ATC:         GTC: 16                              
+Glu   : 17	                            CTC: 2       TTC: 15    
+His   : 8	  ATG:         GTG: 8                               
+Gln   : 10	                            CTG: 1       TTG: 9     
+Ile   : 16	  AAT: 13      GAT: 1                    TAT: 2     
+Met   : 11	                            CAT: 11                 
+Tyr   : 8	  ATA:         GTA: 8                               
+Supres: 0	                            CTA:         TTA:       
+Cys   : 4	  ACA:         GCA: 4                               
+Trp   : 6	                            CCA: 6                  
+SelCys: 1	                                         TCA: 1     

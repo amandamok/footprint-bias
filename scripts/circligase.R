@@ -9,7 +9,7 @@ oligos <- c("ATA", "TCC", "CCA", "CGT", "GAC", "GGG")
 names(oligos) <- c(1:3, 7:9)
 
 # read in qPCR data
-qpcr_fname <- "~/iXnos/wetlab_data/circligase_qpcr.csv"
+qcpr_fname <- file.path(here(), "reference_data", "circligase_qpcr.csv")
 raw_data <- read.csv(qpcr_fname, stringsAsFactors=F)
 raw_data <- subset(raw_data, as.character(raw_data$Oligo) %in% names(oligos))
 raw_data$end_seq <- oligos[as.character(raw_data$Oligo)]
@@ -70,18 +70,28 @@ plot_data$CL <- paste("circligase", plot_data$CL)
 levels(plot_data$expt) <- c("Green", "Lareau", "Weinberg")
 
 corr_text <- unique(plot_data[, c("CL", "expt")])
-corr_text$label <- sapply(seq(nrow(corr_text)),
-                          function(x) {
-                            paste("cor =",
-                                  round(with(subset(plot_data, CL==corr_text$CL[x] & expt==corr_text$expt[x]),
-                                             cor(ratio, FC)),2))
-                          })
+corr_text$corr <- sapply(seq(nrow(corr_text)),
+                         function(x) {
+                           paste("cor =",
+                                 round(with(subset(plot_data, CL==corr_text$CL[x] & expt==corr_text$expt[x]),
+                                            cor(ratio, FC)),2))
+                         })
+corr_text$pvalue <- sapply(seq(nrow(corr_text)),
+                           function(x) {
+                             paste("p =",
+                                   signif(with(subset(plot_data, CL==corr_text$CL[x] & expt==corr_text$expt[x]),
+                                               cor.test(ratio, FC)$p.value),2))
+                           })
+corr_text$x <- min(plot_data$ratio) + 0.2*(max(plot_data$ratio)-min(plot_data$ratio))
+corr_text$y_corr <- 1.3*max(plot_data$FC)
+corr_text$y_pvalue <- 1.2*max(plot_data$FC)
 
 ggplot(plot_data, aes(x=ratio, y=FC)) + geom_point() +
-  facet_grid(CL ~ expt, scales="free_y") +
+  facet_grid(CL ~ expt) +
   geom_errorbar(aes(ymin=FC_lower, ymax=FC_upper)) +
   geom_errorbarh(aes(xmin=ratio-se_abs, xmax=ratio+se_abs)) +
   geom_smooth(method="lm", formula="y ~ x") +
-  geom_text(data=corr_text, mapping=aes(x=0.3, y=2.3, label=label)) +
+  geom_text(data=corr_text, mapping=aes(x=x, y=y_corr, label=corr)) +
+  geom_text(data=corr_text, mapping=aes(x=x, y=y_pvalue, label=pvalue)) +
   theme_classic() + theme(panel.background = element_rect(fill = NA, color = "black")) +
   xlab("in vitro ligation efficiency") + ylab(expression("exp("*beta*")"))
