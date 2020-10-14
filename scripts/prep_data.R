@@ -71,12 +71,15 @@ load_bam <- function(bam_fname, transcript_length_fname, offsets_fname,
   alignment$f3 <- factor(alignment$f3)
   # 8. return nt_base
   if(nt_base) {
-    alignment$nt_base <- alignment$tag.MD
-    levels(alignment$nt_base) <- sapply(levels(alignment$nt_base),
-                                        function(x) {
-                                          ifelse(grepl("^0(A|T|C|G)", x), substr(x, 2, 2), "-")
-                                        })
-    alignment$nt_base <- relevel(alignment$nt_base, ref="-")
+    # alignment$nt_base <- alignment$tag.MD
+    # levels(alignment$nt_base) <- sapply(levels(alignment$nt_base),
+    #                                     function(x) {
+    #                                       ifelse(grepl("^0(A|T|C|G)", x), substr(x, 2, 2), "-")
+    #                                     })
+    # alignment$nt_base <- relevel(alignment$nt_base, ref="-")
+    alignment$nt_base <- substr(as.character(alignment$f5), 1, 1)
+    alignment$nt_base[!grepl("^0(A|T|C|G)", as.character(alignment$tag.MD))] <- "-"
+    alignment$nt_base <- factor(alignment$nt_base, levels=c("-", "A", "T", "C", "G"))
     print(paste("...",
                 sum(alignment$nt_base != "-"),
                 paste0("(", round(sum(alignment$nt_base != "-") / nrow(alignment) * 100, 1), "%)"),
@@ -93,12 +96,15 @@ load_bam <- function(bam_fname, transcript_length_fname, offsets_fname,
     print(paste("... ... G:",
                 sum(alignment$nt_base=="A"),
                 paste0("(", round(sum(alignment$nt_base=="G") / sum(alignment$nt_base!="-") * 100, 1), "%)")))
+    alignment$mod_d5 <- alignment$d5
+    which_ntBase <- which(as.character(alignment$nt_base) != "-")
+    alignment$mod_d5[which_ntBase] <- alignment$mod_d5[which_ntBase] - 1
   }
   # return data
   colnames(alignment)[colnames(alignment)=="rname"] <- "transcript"
   colnames(alignment)[colnames(alignment)=="tag.ZW"] <- "count"
   subset_features <- c("transcript", "cod_idx", "d5", "d3", "f5", "f3", "count")
-  if(nt_base) { subset_features <- c(subset_features, "nt_base") }
+  if(nt_base) { subset_features <- c(subset_features, "nt_base", "mod_d5") }
   if(!full) { alignment <- alignment[, subset_features] }
   return(alignment)
 }
@@ -177,21 +183,26 @@ count_d5_d3 <- function(bam_dat, plot_title="") {
   return(list(counts=subset_count, plot=subset_count_plot))
 }
 
-count_footprints <- function(bam_dat, regression_data, which_column="count") {
+count_footprints <- function(bam_dat, regression_data, which_column="count", nt_base=F) {
   # count up footprints by transcript, A site, and digest lengths
   ## bam_dat: data.frame; output from load_bam()
   ## regression_data: data.frame; output from init_data()
   ## which_column: character; name of column containing counts
+  ## nt_base: logical; whether to account for non-templated bases
   # count up footprints
   bam_dat <- subset(bam_dat, transcript %in% levels(regression_data$transcript))
-  bam_dat <- aggregate(formula(paste(which_column, "~ transcript + cod_idx + d5 + d3")),
-                          data=bam_dat, FUN=sum, na.rm=T)
+  if(nt_base) {
+    features <- c("transcript", "cod_idx", "mod_d5", "d3", "nt_base")
+    bam_dat <- aggregate(formula(paste(which_column, "~ transcript + cod_idx + mod_d5 + d3 + nt_base")),
+                         data=bam_dat, FUN=sum, na.rm=T)
+  } else {
+    features <- c("transcript", "cod_idx", "d5", "d3")
+    bam_dat <- aggregate(formula(paste(which_column, "~ transcript + cod_idx + d5 + d3")),
+                         data=bam_dat, FUN=sum, na.rm=T)
+  }
   # add counts to regression data.frame
-  features <- c("transcript", "cod_idx", "d5", "d3")
   match_rows <- prodlim::row.match(regression_data[, features], bam_dat[, features])
   counts <- bam_dat[match_rows, which_column]
   counts[is.na(counts)] <- 0
-  # counts <- rep(0, nrow(regression_data))
-  # counts[!is.na(match_rows)] <- bam_dat[match_rows[!is.na(match_rows)], which_column]
   return(counts)
 }
