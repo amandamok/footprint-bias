@@ -153,3 +153,26 @@ correct_bias_frameBySize <- function(dat, nb_fits, which_column="count") {
   # 5. return corrected counts
   return(corrected_count)
 }
+
+correct_bias_zinb <- function(dat, fit, which_column="count") {
+  # predict counts if bias sequences were set to reference level, allowing residuals
+  ## dat: data.frame containing regression predictors
+  ## fit: glm object ; output from pscl::zeroinfl()
+  ## which_column: character; name of column containing uncorrected counts
+  # 1. establish f5 scaling factors
+  f5_coefs <- coef(fit)[match(paste0("count_f5", levels(fit$model$mod_f5)), names(coef(fit)))]
+  names(f5_coefs) <- levels(fit$model$mod_f5)
+  f5_coefs[is.na(f5_coefs)] <- 0
+  f5_coefs <- exp(f5_coefs)
+  # 2. establish f3 scaling factors
+  f3_coefs <- coef(fit)[match(paste0("count_f3", levels(fit$model$f3)), names(coef(fit)))]
+  names(f3_coefs) <- levels(fit$model$f3)
+  f3_coefs[is.na(f3_coefs)] <- 0
+  f3_coefs <- exp(f3_coefs)
+  # 3. calculate corrected counts
+  corrected_count <- dat[, which_column] / (f5_coefs[as.character(dat$f5)] * f3_coefs[as.character(dat$f3)])
+  # 4. rescale predicted counts so they sum to original footprint count
+  corrected_count <- corrected_count * sum(dat[, which_column]) / sum(corrected_count, na.rm=T)
+  # 5. return corrected counts
+  return(corrected_count)
+}
