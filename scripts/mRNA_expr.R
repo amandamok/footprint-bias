@@ -21,11 +21,24 @@ plot_data <- data.frame(transcript = common_transcripts,
                         FC = with(model_coef, exp(Estimate)),
                         FC_lower = with(model_coef, exp(Estimate - Std..Error)),
                         FC_upper = with(model_coef, exp(Estimate + Std..Error)))
-plot_text <- data.frame(cor = paste("rho =", signif(cor(plot_data$RPKM, plot_data$FC),2)),
+mrna_text <- data.frame(cor = paste("rho =", signif(cor(plot_data$RPKM, plot_data$FC),2)),
                         pvalue = paste("p =", signif(cor.test(plot_data$RPKM, plot_data$FC)$p.value, 2)))
-ggplot(plot_data, aes(x=RPKM, y=FC)) + geom_point() + theme_classic() +
+mrna_plot <- ggplot(plot_data, aes(x=RPKM, y=FC)) + geom_point() + theme_classic() +
   geom_smooth(method="lm", formula=y~x) + geom_errorbar(aes(ymin=FC_lower, ymax=FC_upper)) +
-  ggtitle("Weinberg mRNA RPKM", subtitle=paste(nrow(plot_data), "transcripts")) +
+  ggtitle("Weinberg", subtitle=paste(nrow(plot_data), "transcripts")) +
   ylab(expr(paste("exp(", beta, ")"))) +
-  geom_text(data=plot_text, mapping=aes(x=500, y=max(plot_data$FC_upper), label=cor)) +
-  geom_text(data=plot_text, mapping=aes(x=500, y=0.95*max(plot_data$FC_upper), label=pvalue))
+  geom_text(data=mrna_text, mapping=aes(x=500, y=max(plot_data$FC_upper), label=cor)) +
+  geom_text(data=mrna_text, mapping=aes(x=500, y=0.95*max(plot_data$FC_upper), label=pvalue))
+
+load(file.path(here(), "expts", "weinberg_20cds20_f5_2_f3_3", "weinberg_bam.Rda"))
+transcript_cts <- aggregate(count~transcript, data=weinberg_bam, FUN=sum)
+plot_data$RPF_ct <- transcript_cts$count[match(common_transcripts, transcript_cts$transcript)]
+rpf_text <- data.frame(cor = paste("rho =", signif(cor(plot_data$RPF_ct, plot_data$FC),2)),
+                        pvalue = paste("p =", signif(cor.test(plot_data$RPF_ct, plot_data$FC)$p.value, 2)))
+rpf_plot <- ggplot(plot_data, aes(x=RPF_ct, y=FC)) + geom_point() + theme_classic() +
+  geom_smooth(method="lm", formula=y~x) + geom_errorbar(aes(ymin=FC_lower, ymax=FC_upper)) +
+  ylab(expr(paste("exp(", beta, ")"))) + ylab("footprint count") +
+  geom_text(data=rpf_text, mapping=aes(x=75000, y=0.95, label=cor)) +
+  geom_text(data=rpf_text, mapping=aes(x=75000, y=0.9, label=pvalue))
+
+mrna_plot / rpf_plot
