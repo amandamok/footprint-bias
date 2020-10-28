@@ -1,3 +1,5 @@
+rm(list=ls())
+
 library(ggplot2)
 library(here)
 
@@ -9,7 +11,7 @@ oligos <- c("ATA", "TCC", "CCA", "CGT", "GAC", "GGG")
 names(oligos) <- c(1:3, 7:9)
 
 # read in qPCR data
-qcpr_fname <- file.path(here(), "reference_data", "circligase_qpcr.csv")
+qpcr_fname <- file.path(here(), "reference_data", "circligase_qpcr.csv")
 raw_data <- read.csv(qpcr_fname, stringsAsFactors=F)
 raw_data <- subset(raw_data, as.character(raw_data$Oligo) %in% names(oligos))
 raw_data$end_seq <- oligos[as.character(raw_data$Oligo)]
@@ -49,7 +51,7 @@ plot_data <- lapply(c("green", "lareau", "weinberg"),
                       d5_ref <- get(model_obj)$xlevels$d5[1]
                       d3_ref <- get(model_obj)$xlevels$d3[1]
                       f5_header <- ifelse(d5_ref=="15" & sum(as.numeric(d5_ref), as.numeric(d3_ref), 3)==28,
-                                          "f5", "d515:f5")
+                                          "genome_f5", "d515:genome_f5")
                       # pull coefficients from model
                       model_coef <- data.frame(summary(get(model_obj))$coefficients)
                       model_coef <- model_coef[match(paste0(f5_header, substr(oligos, 1, 2)),

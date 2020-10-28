@@ -37,7 +37,7 @@ rpf_text <- data.frame(cor = paste("rho =", signif(cor(plot_data$RPF_ct, plot_da
                         pvalue = paste("p =", signif(cor.test(plot_data$RPF_ct, plot_data$FC)$p.value, 2)))
 rpf_plot <- ggplot(plot_data, aes(x=RPF_ct, y=FC)) + geom_point() + theme_classic() +
   geom_smooth(method="lm", formula=y~x) + geom_errorbar(aes(ymin=FC_lower, ymax=FC_upper)) +
-  ylab(expr(paste("exp(", beta, ")"))) + ylab("footprint count") +
+  ylab(expr(paste("exp(", beta, ")"))) + xlab("footprint count") +
   geom_text(data=rpf_text, mapping=aes(x=75000, y=0.95, label=cor)) +
   geom_text(data=rpf_text, mapping=aes(x=75000, y=0.9, label=pvalue))
 

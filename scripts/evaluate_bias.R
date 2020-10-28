@@ -75,7 +75,6 @@ evaluate_bias <- function(dat, which_column="count", transcripts_fa_fname, trans
     # model_cor <- c(count_full_cor, count_loo_cor)
     # names(model_cor) <- c("full", colnames(codons))
     model_cor <- count_full_cor - count_loo_cor
-    names(model_cor <- colnames(codons))
     return(model_cor)
   } else {
     # 4. iXnos regression

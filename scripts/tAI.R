@@ -1,3 +1,5 @@
+rm(list=ls())
+
 library(here)
 library(patchwork)
 

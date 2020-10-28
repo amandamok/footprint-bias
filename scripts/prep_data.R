@@ -5,16 +5,23 @@
 library(foreach)
 library(ggplot2)
 
-load_bam <- function(bam_fname, transcript_length_fname, offsets_fname,
-                     f5_length=3, f3_length=3, full=F, nt_base=F) {
+load_bam <- function(bam_fname, transcript_fa_fname, transcript_length_fname, offsets_fname,
+                     f5_length=2, f3_length=3, full=F, nt_base=F, num_cores=NULL) {
   # calculate proportion of footprints within each 5' and 3' digest length combination
   ## bam_fname: character; file.path to .bam alignment file
+  ## transcript_fa_fname: character; file path to transcriptome .fa file
   ## transcript_length_fname: character; file path to transcriptome lengths file
   ## offsets_fname: character; file.path to offset / A site assignment rules .txt file
   ## f5_length: integer; length of 5' bias region
   ## f3_length: integer; length of 3' bias region
   ## full: logical; whether to import all fields in .bam alignment file
-  ##
+  ## num_cores: integer; number of cores to parallelize over
+  if(is.null(num_cores)) {
+    num_cores <- parallel::detectCores()-8
+  }
+  cl <- parallel::makeCluster(num_cores)
+  on.exit(parallel::stopCluster(cl))
+  doParallel::registerDoParallel(cl)
   # 1. read in footprints
   bam_file <- Rsamtools::BamFile(bam_fname)
   if(full) {
@@ -59,59 +66,67 @@ load_bam <- function(bam_fname, transcript_length_fname, offsets_fname,
               "footprints outside CDS"))
   alignment <- subset(alignment, !outside_cds)
   # 7. pull bias sequences
-  alignment$f5 <- substr(alignment$seq, 1, f5_length)
-  alignment$f3 <- mapply(substr, alignment$seq, alignment$qwidth-f3_length+1, alignment$qwidth)
-  invalid_bias_seq <- (grepl("N", alignment$f5) | grepl("N", alignment$f3))
+  alignment$rpf_f5 <- substr(alignment$seq, 1, f5_length)
+  alignment$rpf_f3 <- mapply(substr, alignment$seq, alignment$qwidth-f3_length+1, alignment$qwidth)
+  invalid_bias_seq <- (grepl("N", alignment$rpf_f5) | grepl("N", alignment$rpf_f3))
   print(paste("... Removing",
               sum(invalid_bias_seq),
               paste0("(", round(sum(invalid_bias_seq) / num_footprints * 100, 1), "%)"),
               "footprints with N in bias region"))
   alignment <- subset(alignment, !invalid_bias_seq)
-  alignment$f5 <- factor(alignment$f5)
-  alignment$f3 <- factor(alignment$f3)
+  alignment$rpf_f5 <- factor(alignment$rpf_f5)
+  alignment$rpf_f3 <- factor(alignment$rpf_f3)
+  # 8. aggregate alignments
+  alignment <- aggregate(tag.ZW ~ rname + cod_idx + d5 + d3 + rpf_f5 + rpf_f3, data=alignment, FUN=sum)
   # 8. return nt_base
   if(nt_base) {
-    # alignment$nt_base <- alignment$tag.MD
-    # levels(alignment$nt_base) <- sapply(levels(alignment$nt_base),
-    #                                     function(x) {
-    #                                       ifelse(grepl("^0(A|T|C|G)", x), substr(x, 2, 2), "-")
-    #                                     })
-    # alignment$nt_base <- relevel(alignment$nt_base, ref="-")
-    alignment$nt_base <- substr(as.character(alignment$f5), 1, 1)
+    alignment$nt_base <- substr(as.character(alignment$rpf_f5), 1, 1)
     alignment$nt_base[!grepl("^0(A|T|C|G)", as.character(alignment$tag.MD))] <- "-"
-    alignment$nt_base <- factor(alignment$nt_base, levels=c("-", "A", "T", "C", "G"))
+    nt_bases <- c("-", "A", "T", "C", "G")
+    alignment$nt_base <- factor(alignment$nt_base, levels=nt_bases)
+    num_mismatch <- sum(alignment$nt_base != "-")
     print(paste("...",
-                sum(alignment$nt_base != "-"),
-                paste0("(", round(sum(alignment$nt_base != "-") / nrow(alignment) * 100, 1), "%)"),
+                num_mismatch,
+                paste0("(", round(num_mismatch / nrow(alignment) * 100, 1), "%)"),
                 "footprints with non-templated 5' base"))
-    print(paste("... ... A:",
-                sum(alignment$nt_base=="A"),
-                paste0("(", round(sum(alignment$nt_base=="A") / sum(alignment$nt_base!="-") * 100, 1), "%)")))
-    print(paste("... ... T:",
-                sum(alignment$nt_base=="A"),
-                paste0("(", round(sum(alignment$nt_base=="T") / sum(alignment$nt_base!="-") * 100, 1), "%)")))
-    print(paste("... ... C:",
-                sum(alignment$nt_base=="A"),
-                paste0("(", round(sum(alignment$nt_base=="C") / sum(alignment$nt_base!="-") * 100, 1), "%)")))
-    print(paste("... ... G:",
-                sum(alignment$nt_base=="A"),
-                paste0("(", round(sum(alignment$nt_base=="G") / sum(alignment$nt_base!="-") * 100, 1), "%)")))
-    alignment$mod_d5 <- alignment$d5
+    for(nt in nt_bases[-1]) {
+      print(paste("...",
+                  sum(alignment$nt_base == nt),
+                  paste0("(", round(sum(alignment$nt_base==nt) / num_mismatch * 100, 1), "%)")))
+    }
+    alignment$nt_d5 <- alignment$d5
     which_ntBase <- which(as.character(alignment$nt_base) != "-")
-    alignment$mod_d5[which_ntBase] <- alignment$mod_d5[which_ntBase] - 1
+    alignment$nt_d5[which_ntBase] <- alignment$nt_d5[which_ntBase] - 1
   }
+  # 9. return genome-annotated bias sequences
+  chunks <- cut(seq.int(nrow(alignment)), num_cores)
+  transcript_seq <- load_fa(transcript_fa_fname)
+  alignment <- foreach(x=split(alignment, chunks),
+                       .combine='rbind', .export=c("get_bias_seq")) %dopar% {
+                         within(x, {
+                           genome_f5 <- mapply(get_bias_seq, as.character(rname), cod_idx, d5,
+                                               MoreArgs=list(utr5_length=unique(transcript_length$utr5_length),
+                                                             transcript_seq=transcript_seq,
+                                                             bias_region="f5", bias_length=f5_length))
+                           genome_f3 <- mapply(get_bias_seq, as.character(rname), cod_idx, d3,
+                                               MoreArgs=list(utr5_length=unique(transcript_length$utr5_length),
+                                                             transcript_seq=transcript_seq,
+                                                             bias_region="f3", bias_length=f3_length))
+                         })
+                       }
   # return data
   colnames(alignment)[colnames(alignment)=="rname"] <- "transcript"
   colnames(alignment)[colnames(alignment)=="tag.ZW"] <- "count"
-  subset_features <- c("transcript", "cod_idx", "d5", "d3", "f5", "f3", "count")
-  if(nt_base) { subset_features <- c(subset_features, "nt_base", "mod_d5") }
+  subset_features <- c("transcript", "cod_idx", "d5", "d3", "rpf_f5", "rpf_f3",
+                       "genome_f5", "genome_f3", "count")
+  if(nt_base) { subset_features <- c(subset_features, "nt_base", "nt_d5") }
   if(!full) { alignment <- alignment[, subset_features] }
   return(alignment)
 }
 
 init_data <- function(transcript_fa_fname, transcript_length_fname,
                       digest5_lengths=15:18, digest3_lengths=9:11, d5_d3_subsets=NULL,
-                      f5_length=2, f3_length=2, num_cores=NULL, which_transcripts=NULL) {
+                      f5_length=2, f3_length=3, num_cores=NULL, which_transcripts=NULL) {
   # initialize data.frame for downstream GLM
   ## transcript_fa_fname: character; file path to transcriptome .fa file
   ## transcript_length_fname: character; file path to transcriptome lengths file
@@ -123,6 +138,7 @@ init_data <- function(transcript_fa_fname, transcript_length_fname,
   ## which_transcripts: character vector; transcripts selected for regression
   transcript_seq <- load_fa(transcript_fa_fname)
   transcript_length <- load_lengths(transcript_length_fname)
+  utr5_length <- unique(transcript_length$utr5_length)
   if(!is.null(which_transcripts)) {
     transcript_seq <- transcript_seq[which_transcripts]
     transcript_length <- subset(transcript_length, transcript %in% which_transcripts)
@@ -133,11 +149,19 @@ init_data <- function(transcript_fa_fname, transcript_length_fname,
     num_cores <- parallel::detectCores()-8
   }
   cl <- parallel::makeCluster(num_cores)
+  on.exit(parallel::stopCluster(cl))
   doParallel::registerDoParallel(cl)
-  codons <- foreach(a=transcript, b=cod_idx,
-                    c=transcript_length$utr5_len[match(transcript, transcript_length$transcript)],
+  codons <- data.frame(transcript=transcript,
+                       cod_idx=cod_idx,
+                       stringsAsFactors=F)
+  chunks <- cut(seq.int(nrow(codons)), num_cores)
+  codons <- foreach(x=split(codons, chunks),
                     .combine='rbind', .export=c("get_codons")) %dopar% {
-                      get_codons(a, b, c, transcript_seq)
+                      data.frame(t(with(x,
+                                        mapply(get_codons, transcript, cod_idx,
+                                               MoreArgs=list(utr5_length=utr5_length,
+                                                             transcript_seq=transcript_seq)))),
+                                 row.names=NULL)
                     }
   if(!is.null(d5_d3_subsets)) {
     dat <- reshape::expand.grid.df(data.frame(transcript, cod_idx, codons),
@@ -146,22 +170,22 @@ init_data <- function(transcript_fa_fname, transcript_length_fname,
     dat <- reshape::expand.grid.df(data.frame(transcript, cod_idx, codons),
                                    expand.grid(d5=digest5_lengths, d3=digest3_lengths))
   }
-  dat$f5 <- foreach(a=as.character(dat$transcript), b=dat$cod_idx, c=dat$d5,
-                    d=transcript_length$utr5_length[match(dat$transcript, transcript_length$transcript)],
-                    .combine='c', .export=c("get_bias_seq")) %dopar% {
-                      get_bias_seq(a, b, c, d, transcript_seq, "f5", f5_length)
-                    }
-  dat$f3 <- foreach(a=as.character(dat$transcript), b=dat$cod_idx, c=dat$d3,
-                    d=transcript_length$utr3_length[match(dat$transcript, transcript_length$transcript)],
-                    .combine='c', .export=c("get_bias_seq")) %dopar% {
-                      get_bias_seq(a, b, c, d, transcript_seq, "f3", f3_length)
-                    }
-  bases <- c("A", "C", "T", "G")
-  parallel::stopCluster(cl)
-  dat$d5 <- as.factor(dat$d5)
-  dat$d3 <- as.factor(dat$d3)
-  dat$f5 <- as.factor(dat$f5)
-  dat$f3 <- as.factor(dat$f3)
+  chunks <- cut(seq.int(nrow(dat)), num_cores)
+  dat <- foreach(x=split(dat, chunks),
+                 .combine='rbind', .export=c("get_bias_seq")) %dopar% {
+                   within(x, {
+                     genome_f5 <- mapply(get_bias_seq, as.character(transcript), cod_idx, d5,
+                                  MoreArgs=list(utr5_length=utr5_length, transcript_seq=transcript_seq,
+                                                bias_region="f5", bias_length=f5_length))
+                     genome_f3 <- mapply(get_bias_seq, as.character(transcript), cod_idx, d3,
+                                  MoreArgs=list(utr5_length=utr5_length, transcript_seq=transcript_seq,
+                                                bias_region="f3", bias_length=f3_length))
+                   })
+                 }
+  dat$d5 <- factor(dat$d5, levels=unique(d5_d3_subsets$d5))
+  dat$d3 <- factor(dat$d3, levels=unique(d5_d3_subsets$d3))
+  dat$f5 <- as.factor(dat$genome_f5)
+  dat$f3 <- as.factor(dat$genome_f3)
   dat$count <- 0
   return(dat)
 }
