@@ -184,8 +184,8 @@ init_data <- function(transcript_fa_fname, transcript_length_fname,
                  }
   dat$d5 <- factor(dat$d5, levels=unique(d5_d3_subsets$d5))
   dat$d3 <- factor(dat$d3, levels=unique(d5_d3_subsets$d3))
-  dat$f5 <- as.factor(dat$genome_f5)
-  dat$f3 <- as.factor(dat$genome_f3)
+  dat$genome_f5 <- as.factor(dat$genome_f5)
+  dat$genome_f3 <- as.factor(dat$genome_f3)
   dat$count <- 0
   return(dat)
 }
