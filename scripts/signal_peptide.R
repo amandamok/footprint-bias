@@ -1,5 +1,6 @@
 rm(list=ls())
 
+library(here)
 library(ggplot2)
 library(patchwork)
 library(reshape2)
@@ -27,7 +28,8 @@ signal_peptides <- read.table(paste0(signalp_prefix, ".gff3"), stringsAsFactors=
                                           "end", "score", "strand",
                                           "phase", "attributes"))
 
-# compare profiles before/after correction of signal peptides -------------
+
+# grab profiles around signal peptide -------------------------------------
 
 expts <- c("green", "lareau", "weinberg")
 
@@ -40,24 +42,26 @@ transcript_lengths <- load_lengths(transcript_lengths_fname)
 
 sp_profiles <- lapply(seq(nrow(signal_peptides)),
                       function(x) {
+                        first_codon <- 5
+                        exit_tunnel_length <- 40
                         tmp_transcript <- signal_peptides$seqid[x]
                         tmp_sp_length <- signal_peptides$end[x]
                         tmp_length <- transcript_lengths$cds_length[match(tmp_transcript,
                                                                           transcript_lengths$transcript)]/3
+                        which_codons <- first_codon:(tmp_sp_length+exit_tunnel_length)
                         tmp_profile <- lapply(expts,
                                               function(expt) {
-                                                first_codon <- 5
                                                 # extract footprints assigned to transcript
                                                 tmp_subset <- subset(get(paste0(expt, "_bam")),
                                                                      transcript==tmp_transcript)
                                                 if(nrow(tmp_subset)== 0) {
                                                   output <- data.frame(transcript = tmp_transcript,
-                                                                       cod_idx = rep(first_codon:(tmp_sp_length+5), times=4),
+                                                                       cod_idx = rep(which_codons - tmp_sp_length, times=4),
                                                                        expt = expt,
                                                                        count = 0,
                                                                        type = rep(c("raw", "raw (normalized)",
                                                                                     "corrected", "corrected (normalized)"),
-                                                                                  times=length(first_codon:(tmp_sp_length+5))))
+                                                                                  times=length(which_codons)))
                                                 } else {
                                                   # aggregate raw footprint counts
                                                   if(nrow(tmp_subset==1)) {
@@ -71,11 +75,11 @@ sp_profiles <- lapply(seq(nrow(signal_peptides)),
                                                   }
                                                   mean_raw <- sum(tmp_raw$count, na.rm=T) / tmp_length
                                                   mean_correct <- sum(tmp_correct$correct_150, na.rm=T) / tmp_length
-                                                  indices_raw <- match(first_codon:(tmp_sp_length+5), tmp_raw$cod_idx)
-                                                  indices_correct <- match(first_codon:(tmp_sp_length+5), tmp_correct$cod_idx)
+                                                  indices_raw <- match(which_codons, tmp_raw$cod_idx)
+                                                  indices_correct <- match(which_codons, tmp_correct$cod_idx)
                                                   # report raw, raw (normalized), corrected, corrected (normalized) counts
                                                   tmp <- data.frame(transcript = tmp_transcript,
-                                                                    cod_idx = first_codon:(tmp_sp_length+5) - tmp_sp_length,
+                                                                    cod_idx = which_codons - tmp_sp_length,
                                                                     expt = expt)
                                                   output <- rbind(within(tmp,
                                                                          {
@@ -115,22 +119,44 @@ sp_profiles$normalized <- factor(ifelse(grepl("normalized", as.character(sp_prof
                                  levels=c("-", "+"))
 levels(sp_profiles$expt) <- c("Green", "Lareau", "Weinberg")
 
-sp_counts_raw <- aggregate(count ~ transcript + expt, data=subset(sp_profiles, type=="raw"), FUN=sum)
-sp_counts_raw <- dcast(sp_counts_raw, transcript ~ expt)
 
-transcripts_to_plot <- as.character(sp_counts_raw$transcript[sapply(seq(nrow(sp_counts_raw)),
-                                                                function(x) { all(sp_counts_raw[x,][-1]>75) })])
-sp_profiles_plots <- lapply(transcripts_to_plot,
+# individual profiles -----------------------------------------------------
+
+sp_cts <- aggregate(count ~ transcript + expt, data=subset(sp_profiles, type=="raw"), FUN=sum)
+sp_cts <- dcast(sp_cts, transcript ~ expt, value.var="count")
+transcripts_to_plot <- as.character(sp_cts$transcript)[order(rowMeans(sp_cts[,-1]), decreasing=T)]
+
+sp_profiles_plots <- lapply(transcripts_to_plot[1:16],
                             function(x) {
                               tmp_subset <- subset(sp_profiles,
                                                    transcript == x & normalized == "-")
                               ggplot(tmp_subset, aes(x=cod_idx, y=count, col=correction)) +
                                 geom_line() + facet_grid(expt ~ ., scales="free_y") + theme_classic() +
                                 geom_hline(yintercept=0) + geom_vline(xintercept=0) +
-                                ggtitle(x) +
-                                xlab("distance to signal peptide cleavage site")
+                                geom_vline(xintercept=30, linetype="dashed") +
+                                ggtitle(x) + xlab("") + ylab("") + theme(legend.position="none")
                             })
-wrap_plots(sp_profiles_plots, ncol=5)
+wrap_plots(sp_profiles_plots, ncol=4)
+
+# ggplot(subset(sp_profiles, transcript %in% transcripts_to_plot[1:16]), aes(x=cod_idx, y=count, col=correction)) +
+#   geom_line() + facet_wrap(expt ~ transcript, scales="free_y") + theme_classic() +
+#   geom_hline(yintercept=0) + geom_vline(xintercept=0) + geom_vline(xintercept=30, linetype="dashed") +
+#   xlab("distance (# codons) to signal peptide cleavage site")
+
+# metagene profile --------------------------------------------------------
+
+metagene <- aggregate(count ~ cod_idx + expt + type + correction + normalized,
+                      data=sp_profiles, FUN=sum)
+levels(metagene$normalized) <- c("raw", "normalized")
+ggplot(metagene, aes(x=cod_idx, y=count, col=correction)) +
+  geom_line() + facet_wrap(expt ~ normalized, nrow=3, scales="free_y") + theme_classic() +
+  geom_hline(yintercept=0) + geom_vline(xintercept=0) + geom_vline(xintercept=30, linetype="dashed") +
+  xlab("distance (# codons) to cleavage site")
+
+# aggregate counts --------------------------------------------------------
+
+sp_counts_raw <- aggregate(count ~ transcript + expt, data=subset(sp_profiles, type=="raw"), FUN=sum)
+sp_counts_raw <- dcast(sp_counts_raw, transcript ~ expt)
 
 sp_counts_corrected <- aggregate(count ~ transcript + expt,
                                  data=subset(sp_profiles, type=="corrected"), FUN=sum)
