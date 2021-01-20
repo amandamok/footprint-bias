@@ -36,7 +36,7 @@ utr3_length <- unique(transcript_lengths$utr3_length)
 
 if(!file.exists("schuller_bam.Rda")) {
   schuller_bam <- load_bam(schuller_bam_fname, transcript_fa_fname, transcript_length_fname, offsets_fname,
-                        f5_length=f5_length, f3_length=f3_length)
+                           f5_length=f5_length, f3_length=f3_length)
   save(schuller_bam, file="schuller_bam.Rda")
 } else {
   load("schuller_bam.Rda")
@@ -79,30 +79,30 @@ test_set <- as.character(transcript_counts$transcript)[test_set]
 
 if(!file.exists("schuller_training_data.Rda")) {
   schuller_training <- init_data(transcript_fa_fname, transcript_length_fname,
-                              d5_d3_subsets=d5_d3_subsets, f5_length=f5_length, f3_length=f3_length,
-                              which_transcripts=training_set)
+                                 d5_d3_subsets=d5_d3_subsets, f5_length=f5_length, f3_length=f3_length,
+                                 which_transcripts=training_set)
   schuller_training$transcript <- relevel(schuller_training$transcript, ref=training_set[1])
   schuller_training$count <- count_footprints(schuller_bam, schuller_training, "count")
   save(schuller_training, file="schuller_training_data.Rda")
 } else {
   load("schuller_training_data.Rda")
   training_set <- levels(schuller_training$transcript)
-  training_set <- training_set[order(transcript_counts$count[match(training_set,
-                                                                   transcript_counts$transcript)],
+  training_set <- training_set[order(transcript_counts$TE[match(training_set,
+                                                                transcript_counts$transcript)],
                                      decreasing=T)]
 }
 
 if(!file.exists("schuller_test_data.Rda")) {
   schuller_test <- init_data(transcript_fa_fname, transcript_length_fname,
-                          d5_d3_subsets=d5_d3_subsets, f5_length=f5_length, f3_length=f3_length,
-                          which_transcripts=test_set)
+                             d5_d3_subsets=d5_d3_subsets, f5_length=f5_length, f3_length=f3_length,
+                             which_transcripts=test_set)
   schuller_test$count <- count_footprints(schuller_bam, schuller_test, "count")
   save(schuller_test, file="schuller_test_data.Rda")
 } else {
   load("schuller_test_data.Rda")
   test_set <- levels(schuller_test$transcript)
-  test_set <- test_set[order(transcript_counts$count[match(test_set,
-                                                           transcript_counts$transcript)],
+  test_set <- test_set[order(transcript_counts$TE[match(test_set,
+                                                        transcript_counts$transcript)],
                              decreasing=T)]
 }
 
@@ -138,7 +138,7 @@ print(paste("regression fit for:", paste(num_genes, collapse=", "), "genes"))
 
 for(x in num_genes) {
   correction <- paste0("correct_", x)
-  schuller_bam[, correction] <- correct_bias_interxn(schuller_bam, get(paste0("schuller_fit_", x)))
+  schuller_bam[, correction] <- correct_bias(schuller_bam, get(paste0("schuller_fit_", x)))
   schuller_training[, correction] <- count_footprints(schuller_bam, schuller_training, correction)
   schuller_test[, correction] <- count_footprints(schuller_bam, schuller_test, correction)
 }
@@ -150,44 +150,44 @@ save(schuller_test, file="schuller_test_data.Rda")
 
 # training data: codons
 schuller_training_codon_corr <- lapply(num_genes,
-                                    function(x) {
-                                      evaluate_bias(schuller_training, which_column=paste0("correct_", x),
-                                                    transcript_fa_fname, transcript_length_fname,
-                                                    utr5=utr5_length, utr3=utr3_length, type="codon")
-                                    })
+                                       function(x) {
+                                         evaluate_bias(schuller_training, which_column=paste0("correct_", x),
+                                                       transcript_fa_fname, transcript_length_fname,
+                                                       utr5=utr5_length, utr3=utr3_length, type="codon")
+                                       })
 schuller_training_codon_corr <- data.frame(do.call(cbind, schuller_training_codon_corr))
 colnames(schuller_training_codon_corr) <- paste0("correct_", num_genes)
 save(schuller_training_codon_corr, file="schuller_training_codon_corr.Rda")
 
 # training data: nucleotides
 schuller_training_nt_corr <- lapply(num_genes,
-                                 function(x) {
-                                   evaluate_bias(schuller_training, which_column=paste0("correct_", x),
-                                                 transcript_fa_fname, transcript_length_fname,
-                                                 utr5=utr5_length, utr3=utr3_length, type="nt")
-                                 })
+                                    function(x) {
+                                      evaluate_bias(schuller_training, which_column=paste0("correct_", x),
+                                                    transcript_fa_fname, transcript_length_fname,
+                                                    utr5=utr5_length, utr3=utr3_length, type="nt")
+                                    })
 schuller_training_nt_corr <- data.frame(do.call(cbind, schuller_training_nt_corr))
 colnames(schuller_training_nt_corr) <- paste0("correct_", num_genes)
 save(schuller_training_nt_corr, file="schuller_training_nt_corr.Rda")
 
 # test data: codons
 schuller_test_codon_corr <- lapply(num_genes,
-                                function(x) {
-                                  evaluate_bias(schuller_test, which_column=paste0("correct_", x),
-                                                transcript_fa_fname, transcript_length_fname,
-                                                utr5=utr5_length, utr3=utr3_length, type="codon")
-                                })
+                                   function(x) {
+                                     evaluate_bias(schuller_test, which_column=paste0("correct_", x),
+                                                   transcript_fa_fname, transcript_length_fname,
+                                                   utr5=utr5_length, utr3=utr3_length, type="codon")
+                                   })
 schuller_test_codon_corr <- data.frame(do.call(cbind, schuller_test_codon_corr))
 colnames(schuller_test_codon_corr) <- paste0("correct_", num_genes)
 save(schuller_test_codon_corr, file="schuller_test_codon_corr.Rda")
 
 # test data: nucleotides
 schuller_test_nt_corr <- lapply(num_genes,
-                             function(x) {
-                               evaluate_bias(schuller_test, which_column=paste0("correct_", x),
-                                             transcript_fa_fname, transcript_length_fname,
-                                             utr5=utr5_length, utr3=utr3_length, type="nt")
-                             })
+                                function(x) {
+                                  evaluate_bias(schuller_test, which_column=paste0("correct_", x),
+                                                transcript_fa_fname, transcript_length_fname,
+                                                utr5=utr5_length, utr3=utr3_length, type="nt")
+                                })
 schuller_test_nt_corr <- data.frame(do.call(cbind, schuller_test_nt_corr))
 colnames(schuller_test_nt_corr) <- paste0("correct_", num_genes)
 save(schuller_test_nt_corr, file="schuller_test_nt_corr.Rda")
@@ -196,34 +196,34 @@ save(schuller_test_nt_corr, file="schuller_test_nt_corr.Rda")
 
 # training data
 schuller_training_codon_plots <- lapply(num_genes,
-                                     function(x) {
-                                       tmp <- schuller_training_codon_corr[, paste0("correct_", x)]
-                                       names(tmp) <- rownames(schuller_training_codon_corr)
-                                       plot_bias(tmp, plot_subtitle=paste(x, "genes"), type="codon")
-                                     })
+                                        function(x) {
+                                          tmp <- schuller_training_codon_corr[, paste0("correct_", x)]
+                                          names(tmp) <- rownames(schuller_training_codon_corr)
+                                          plot_bias(tmp, plot_subtitle=paste(x, "genes"), type="codon")
+                                        })
 schuller_training_nt_plots <- lapply(num_genes,
-                                  function(x) {
-                                    tmp <- schuller_training_nt_corr[, paste0("correct_", x)]
-                                    names(tmp) <- rownames(schuller_training_nt_corr)
-                                    plot_bias(tmp, plot_subtitle=paste(x, "genes"), type="nt")
-                                  })
+                                     function(x) {
+                                       tmp <- schuller_training_nt_corr[, paste0("correct_", x)]
+                                       names(tmp) <- rownames(schuller_training_nt_corr)
+                                       plot_bias(tmp, plot_subtitle=paste(x, "genes"), type="nt")
+                                     })
 schuller_training_codon_plots[[1]] <- schuller_training_codon_plots[[1]] + ggtitle("schuller: training data")
 schuller_training_plots <- wrap_plots(schuller_training_codon_plots, nrow=1) / wrap_plots(schuller_training_nt_plots, nrow=1)
 save(schuller_training_plots, file="schuller_training_plots.Rda")
 
 # test data
 schuller_test_codon_plots <- lapply(num_genes,
-                                 function(x) {
-                                   tmp <- schuller_test_codon_corr[, paste0("correct_", x)]
-                                   names(tmp) <- rownames(schuller_test_codon_corr)
-                                   plot_bias(tmp, plot_subtitle=paste(x, "genes"), type="codon")
-                                 })
+                                    function(x) {
+                                      tmp <- schuller_test_codon_corr[, paste0("correct_", x)]
+                                      names(tmp) <- rownames(schuller_test_codon_corr)
+                                      plot_bias(tmp, plot_subtitle=paste(x, "genes"), type="codon")
+                                    })
 schuller_test_nt_plots <- lapply(num_genes,
-                              function(x) {
-                                tmp <- schuller_test_nt_corr[, paste0("correct_", x)]
-                                names(tmp) <- rownames(schuller_test_nt_corr)
-                                plot_bias(tmp, plot_subtitle=paste(x, "genes"), type="nt")
-                              })
+                                 function(x) {
+                                   tmp <- schuller_test_nt_corr[, paste0("correct_", x)]
+                                   names(tmp) <- rownames(schuller_test_nt_corr)
+                                   plot_bias(tmp, plot_subtitle=paste(x, "genes"), type="nt")
+                                 })
 schuller_test_codon_plots[[1]] <- schuller_test_codon_plots[[1]] + ggtitle("schuller: test data")
 schuller_test_plots <- wrap_plots(schuller_test_codon_plots, nrow=1) / wrap_plots(schuller_test_nt_plots, nrow=1)
 save(schuller_test_plots, file="schuller_test_plots.Rda")

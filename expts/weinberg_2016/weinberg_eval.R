@@ -36,7 +36,7 @@ utr3_length <- unique(transcript_lengths$utr3_length)
 
 if(!file.exists("weinberg_bam.Rda")) {
   weinberg_bam <- load_bam(weinberg_bam_fname, transcript_fa_fname, transcript_length_fname, offsets_fname,
-                        f5_length=f5_length, f3_length=f3_length)
+                           f5_length=f5_length, f3_length=f3_length)
   save(weinberg_bam, file="weinberg_bam.Rda")
 } else {
   load("weinberg_bam.Rda")
@@ -59,7 +59,7 @@ if(!file.exists("weinberg_subsets.Rda")) {
 # 3. establish training and test sets -------------------------------------
 
 # count footprints per transcript
-transcript_counts <- aggregate(count ~ transcript, data=green_bam, FUN=sum)
+transcript_counts <- aggregate(count ~ transcript, data=weinberg_bam, FUN=sum)
 transcript_counts$length_aa <- transcript_lengths$cds_length[match(transcript_counts$transcript,
                                                                    transcript_lengths$transcript)] / 3
 transcript_counts$TE <- with(transcript_counts, count / length_aa)
@@ -79,30 +79,30 @@ test_set <- as.character(transcript_counts$transcript)[test_set]
 
 if(!file.exists("weinberg_training_data.Rda")) {
   weinberg_training <- init_data(transcript_fa_fname, transcript_length_fname,
-                              d5_d3_subsets=d5_d3_subsets, f5_length=f5_length, f3_length=f3_length,
-                              which_transcripts=training_set)
+                                 d5_d3_subsets=d5_d3_subsets, f5_length=f5_length, f3_length=f3_length,
+                                 which_transcripts=training_set)
   weinberg_training$transcript <- relevel(weinberg_training$transcript, ref=training_set[1])
   weinberg_training$count <- count_footprints(weinberg_bam, weinberg_training, "count")
   save(weinberg_training, file="weinberg_training_data.Rda")
 } else {
   load("weinberg_training_data.Rda")
   training_set <- levels(weinberg_training$transcript)
-  training_set <- training_set[order(transcript_counts$count[match(training_set,
-                                                                   transcript_counts$transcript)],
+  training_set <- training_set[order(transcript_counts$TE[match(training_set,
+                                                                transcript_counts$transcript)],
                                      decreasing=T)]
 }
 
 if(!file.exists("weinberg_test_data.Rda")) {
   weinberg_test <- init_data(transcript_fa_fname, transcript_length_fname,
-                          d5_d3_subsets=d5_d3_subsets, f5_length=f5_length, f3_length=f3_length,
-                          which_transcripts=test_set)
+                             d5_d3_subsets=d5_d3_subsets, f5_length=f5_length, f3_length=f3_length,
+                             which_transcripts=test_set)
   weinberg_test$count <- count_footprints(weinberg_bam, weinberg_test, "count")
   save(weinberg_test, file="weinberg_test_data.Rda")
 } else {
   load("weinberg_test_data.Rda")
   test_set <- levels(weinberg_test$transcript)
-  test_set <- test_set[order(transcript_counts$count[match(test_set,
-                                                           transcript_counts$transcript)],
+  test_set <- test_set[order(transcript_counts$TE[match(test_set,
+                                                        transcript_counts$transcript)],
                              decreasing=T)]
 }
 
@@ -138,7 +138,7 @@ print(paste("regression fit for:", paste(num_genes, collapse=", "), "genes"))
 
 for(x in num_genes) {
   correction <- paste0("correct_", x)
-  weinberg_bam[, correction] <- correct_bias_interxn(weinberg_bam, get(paste0("weinberg_fit_", x)))
+  weinberg_bam[, correction] <- correct_bias(weinberg_bam, get(paste0("weinberg_fit_", x)))
   weinberg_training[, correction] <- count_footprints(weinberg_bam, weinberg_training, correction)
   weinberg_test[, correction] <- count_footprints(weinberg_bam, weinberg_test, correction)
 }
@@ -150,44 +150,44 @@ save(weinberg_test, file="weinberg_test_data.Rda")
 
 # training data: codons
 weinberg_training_codon_corr <- lapply(num_genes,
-                                    function(x) {
-                                      evaluate_bias(weinberg_training, which_column=paste0("correct_", x),
-                                                    transcript_fa_fname, transcript_length_fname,
-                                                    utr5=utr5_length, utr3=utr3_length, type="codon")
-                                    })
+                                       function(x) {
+                                         evaluate_bias(weinberg_training, which_column=paste0("correct_", x),
+                                                       transcript_fa_fname, transcript_length_fname,
+                                                       utr5=utr5_length, utr3=utr3_length, type="codon")
+                                       })
 weinberg_training_codon_corr <- data.frame(do.call(cbind, weinberg_training_codon_corr))
 colnames(weinberg_training_codon_corr) <- paste0("correct_", num_genes)
 save(weinberg_training_codon_corr, file="weinberg_training_codon_corr.Rda")
 
 # training data: nucleotides
 weinberg_training_nt_corr <- lapply(num_genes,
-                                 function(x) {
-                                   evaluate_bias(weinberg_training, which_column=paste0("correct_", x),
-                                                 transcript_fa_fname, transcript_length_fname,
-                                                 utr5=utr5_length, utr3=utr3_length, type="nt")
-                                 })
+                                    function(x) {
+                                      evaluate_bias(weinberg_training, which_column=paste0("correct_", x),
+                                                    transcript_fa_fname, transcript_length_fname,
+                                                    utr5=utr5_length, utr3=utr3_length, type="nt")
+                                    })
 weinberg_training_nt_corr <- data.frame(do.call(cbind, weinberg_training_nt_corr))
 colnames(weinberg_training_nt_corr) <- paste0("correct_", num_genes)
 save(weinberg_training_nt_corr, file="weinberg_training_nt_corr.Rda")
 
 # test data: codons
 weinberg_test_codon_corr <- lapply(num_genes,
-                                function(x) {
-                                  evaluate_bias(weinberg_test, which_column=paste0("correct_", x),
-                                                transcript_fa_fname, transcript_length_fname,
-                                                utr5=utr5_length, utr3=utr3_length, type="codon")
-                                })
+                                   function(x) {
+                                     evaluate_bias(weinberg_test, which_column=paste0("correct_", x),
+                                                   transcript_fa_fname, transcript_length_fname,
+                                                   utr5=utr5_length, utr3=utr3_length, type="codon")
+                                   })
 weinberg_test_codon_corr <- data.frame(do.call(cbind, weinberg_test_codon_corr))
 colnames(weinberg_test_codon_corr) <- paste0("correct_", num_genes)
 save(weinberg_test_codon_corr, file="weinberg_test_codon_corr.Rda")
 
 # test data: nucleotides
 weinberg_test_nt_corr <- lapply(num_genes,
-                             function(x) {
-                               evaluate_bias(weinberg_test, which_column=paste0("correct_", x),
-                                             transcript_fa_fname, transcript_length_fname,
-                                             utr5=utr5_length, utr3=utr3_length, type="nt")
-                             })
+                                function(x) {
+                                  evaluate_bias(weinberg_test, which_column=paste0("correct_", x),
+                                                transcript_fa_fname, transcript_length_fname,
+                                                utr5=utr5_length, utr3=utr3_length, type="nt")
+                                })
 weinberg_test_nt_corr <- data.frame(do.call(cbind, weinberg_test_nt_corr))
 colnames(weinberg_test_nt_corr) <- paste0("correct_", num_genes)
 save(weinberg_test_nt_corr, file="weinberg_test_nt_corr.Rda")
@@ -196,34 +196,34 @@ save(weinberg_test_nt_corr, file="weinberg_test_nt_corr.Rda")
 
 # training data
 weinberg_training_codon_plots <- lapply(num_genes,
-                                     function(x) {
-                                       tmp <- weinberg_training_codon_corr[, paste0("correct_", x)]
-                                       names(tmp) <- rownames(weinberg_training_codon_corr)
-                                       plot_bias(tmp, plot_subtitle=paste(x, "genes"), type="codon")
-                                     })
+                                        function(x) {
+                                          tmp <- weinberg_training_codon_corr[, paste0("correct_", x)]
+                                          names(tmp) <- rownames(weinberg_training_codon_corr)
+                                          plot_bias(tmp, plot_subtitle=paste(x, "genes"), type="codon")
+                                        })
 weinberg_training_nt_plots <- lapply(num_genes,
-                                  function(x) {
-                                    tmp <- weinberg_training_nt_corr[, paste0("correct_", x)]
-                                    names(tmp) <- rownames(weinberg_training_nt_corr)
-                                    plot_bias(tmp, plot_subtitle=paste(x, "genes"), type="nt")
-                                  })
+                                     function(x) {
+                                       tmp <- weinberg_training_nt_corr[, paste0("correct_", x)]
+                                       names(tmp) <- rownames(weinberg_training_nt_corr)
+                                       plot_bias(tmp, plot_subtitle=paste(x, "genes"), type="nt")
+                                     })
 weinberg_training_codon_plots[[1]] <- weinberg_training_codon_plots[[1]] + ggtitle("weinberg: training data")
 weinberg_training_plots <- wrap_plots(weinberg_training_codon_plots, nrow=1) / wrap_plots(weinberg_training_nt_plots, nrow=1)
 save(weinberg_training_plots, file="weinberg_training_plots.Rda")
 
 # test data
 weinberg_test_codon_plots <- lapply(num_genes,
-                                 function(x) {
-                                   tmp <- weinberg_test_codon_corr[, paste0("correct_", x)]
-                                   names(tmp) <- rownames(weinberg_test_codon_corr)
-                                   plot_bias(tmp, plot_subtitle=paste(x, "genes"), type="codon")
-                                 })
+                                    function(x) {
+                                      tmp <- weinberg_test_codon_corr[, paste0("correct_", x)]
+                                      names(tmp) <- rownames(weinberg_test_codon_corr)
+                                      plot_bias(tmp, plot_subtitle=paste(x, "genes"), type="codon")
+                                    })
 weinberg_test_nt_plots <- lapply(num_genes,
-                              function(x) {
-                                tmp <- weinberg_test_nt_corr[, paste0("correct_", x)]
-                                names(tmp) <- rownames(weinberg_test_nt_corr)
-                                plot_bias(tmp, plot_subtitle=paste(x, "genes"), type="nt")
-                              })
+                                 function(x) {
+                                   tmp <- weinberg_test_nt_corr[, paste0("correct_", x)]
+                                   names(tmp) <- rownames(weinberg_test_nt_corr)
+                                   plot_bias(tmp, plot_subtitle=paste(x, "genes"), type="nt")
+                                 })
 weinberg_test_codon_plots[[1]] <- weinberg_test_codon_plots[[1]] + ggtitle("weinberg: test data")
 weinberg_test_plots <- wrap_plots(weinberg_test_codon_plots, nrow=1) / wrap_plots(weinberg_test_nt_plots, nrow=1)
 save(weinberg_test_plots, file="weinberg_test_plots.Rda")
