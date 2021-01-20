@@ -1,0 +1,363 @@
+---
+title: "choros evaluation"
+author: "Amanda Mok"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output: html_document
+---
+
+```{r setup, echo=F}
+knitr::opts_chunk$set(fig.width=12, echo=F, warning=F)
+
+library(ggplot2)
+library(patchwork)
+
+num_genes <- c(5, 10, 25, 50, 75, 100, 125, 150)
+main_terms <- c("transcript", "A", "P", "E", "d5", "d3", "genome_f5", "genome_f3")
+```
+
+#### schuller data
+
+```{r schuller_setup}
+expt <- "schuller"
+expt_dir <- "."
+
+load(file.path(expt_dir, paste0(expt, "_training_plots.Rda")))
+load(file.path(expt_dir, paste0(expt, "_test_plots.Rda")))
+load(file.path(expt_dir, paste0(expt, "_bam.Rda")))
+load(file.path(expt_dir, paste0(expt, "_subsets.Rda")))
+
+for(n in num_genes) {
+  load(file.path(expt_dir, paste0(expt, "_coef_", n, ".Rda")))
+}
+```
+
+```{r schuller_subsets}
+d5_d3$plot + ggtitle(paste(sub("_", "|", 
+                               sub("d5_", "d5:", 
+                                   sub("d3_", "d3:", subset_names))), 
+                           collapse=" ; "))
+```
+
+Bias evaluation
+
+```{r schuller_bias, fig.height=6}
+schuller_training_plots
+schuller_test_plots
+```
+
+Consistency of regression coefficient terms
+
+```{r schuller_consistency_main, fig.height=30}
+# main terms
+schuller_main_coef <- lapply(num_genes,
+                          function(x) {
+                            tmp_coef <- get(paste0("schuller_coef_", x))
+                            tmp_coef <- tmp_coef[!grepl("(Intercept)|:", names(tmp_coef))]
+                            tmp_coef <- data.frame(term=names(tmp_coef),
+                                                   value=tmp_coef,
+                                                   num_genes=x,
+                                                   type=NA,
+                                                   stringsAsFactors=F, row.names=NULL)
+                            for(y in main_terms) {
+                              tmp_terms <- grepl(paste0("^", y), tmp_coef$term)
+                              tmp_coef$term[tmp_terms] <- sub(y, "", tmp_coef$term[tmp_terms])
+                              tmp_coef$type[tmp_terms] <- y
+                            }
+                            return(tmp_coef)
+                          })
+schuller_main_coef <- do.call(rbind, schuller_main_coef)
+schuller_main_plots <- lapply(main_terms,
+                           function(x) {
+                             tmp_coef <- subset(schuller_main_coef, type==x)
+                             ggplot(tmp_coef, aes(x=num_genes, y=value, col=term)) +
+                               geom_line() + geom_point() + theme_bw() +
+                               xlab("") + ylab(expr(beta)) + ggtitle(x) + theme(legend.position="none")
+                           })
+schuller_main_plots[[length(main_terms)]] <- schuller_main_plots[[length(main_terms)]] + 
+  xlab("number of genes in training set")
+wrap_plots(schuller_main_plots, ncol=1)
+```
+
+```{r schuller_consistency_interxn, fig.height=8}
+# f5 interaction terms
+schuller_f5_interxn <- lapply(num_genes,
+                           function(x) {
+                             tmp_coef <- get(paste0("schuller_coef_", x))
+                             tmp_coef <- tmp_coef[grepl(":genome_f5", names(tmp_coef))]
+                             tmp_coef <- data.frame(term=names(tmp_coef),
+                                                    value=tmp_coef,
+                                                    num_genes=x,
+                                                    stringsAsFactors=F, row.names=NULL)
+                             tmp_coef$d5 <- factor(sub("d5", "d5=", sub(":.*", "", tmp_coef$term)))
+                             tmp_coef$term <- substr(tmp_coef$term, 
+                                                     start=nchar(tmp_coef$term)-1,
+                                                     stop=nchar(tmp_coef$term))
+                             tmp_coef$end_nt <- substr(tmp_coef$term, start=1, stop=1) 
+                             return(tmp_coef)
+                           })
+schuller_f5_interxn <- do.call(rbind, schuller_f5_interxn)
+ggplot(schuller_f5_interxn, aes(x=num_genes, y=value, col=term)) + geom_line() +
+  geom_point(aes(shape=end_nt), size=2) + theme_bw() + facet_wrap(~d5, ncol=1) + 
+  ggtitle("d5*f5 interaction terms") + xlab("number of genes in training set") + ylab(expr(beta))
+
+# f3 interaction terms
+schuller_f3_interxn <- lapply(num_genes,
+                           function(x) {
+                             tmp_coef <- get(paste0("schuller_coef_", x))
+                             tmp_coef <- tmp_coef[grepl(":genome_f3", names(tmp_coef))]
+                             tmp_coef <- data.frame(term=names(tmp_coef),
+                                                    value=tmp_coef,
+                                                    num_genes=x,
+                                                    stringsAsFactors=F, row.names=NULL)
+                             tmp_coef$d3 <- factor(sub("d3", "d3=", sub(":.*", "", tmp_coef$term)))
+                             tmp_coef$term <- substr(tmp_coef$term, 
+                                                     start=nchar(tmp_coef$term)-2,
+                                                     stop=nchar(tmp_coef$term))
+                             tmp_coef$end_nt <- substr(tmp_coef$term, 
+                                                       start=nchar(tmp_coef$term), 
+                                                       stop=nchar(tmp_coef$term)) 
+                             return(tmp_coef)
+                           })
+schuller_f3_interxn <- do.call(rbind, schuller_f3_interxn)
+ggplot(schuller_f3_interxn, aes(x=num_genes, y=value, col=term)) + geom_line() +
+  geom_point(aes(shape=end_nt), size=2) + theme_bw() + facet_wrap(~d3, ncol=1) + 
+  ggtitle("d3*f3 interaction terms") + xlab("number of genes in training set") + ylab(expr(beta))
+```
+
+5' footprint recovery terms across digest lengths (trained on 150 genes)
+
+```{r schuller_d5f5_compare, fig.height=12}
+schuller_f5 <- unique(schuller_main_coef$term[schuller_main_coef$type=="genome_f5"])
+schuller_d5_ref <- unique(d5_d3_subsets$d5)[!(paste0("d5", unique(d5_d3_subsets$d5)) %in% names(schuller_coef_150))]
+schuller_f5_ref <- sapply(schuller_f5,
+                       function(x) {
+                         schuller_main_coef$value[schuller_main_coef$term==x &
+                                                 schuller_main_coef$type=="genome_f5" &
+                                                 schuller_main_coef$num_genes==150]
+                       })
+
+schuller_d5f5_compare <- data.frame(term=schuller_f5)
+for(d5 in unique(d5_d3_subsets$d5)) {
+  if(d5 == schuller_d5_ref) {
+    schuller_d5f5_compare[, paste0("d5_", d5)] <- schuller_f5_ref
+  } else {
+    tmp_compare <- sapply(schuller_f5,
+                          function(x) {
+                            schuller_f5_interxn$value[schuller_f5_interxn$d5==paste0("d5=", d5) &
+                                                     schuller_f5_interxn$term==x &
+                                                     schuller_f5_interxn$num_genes==150]
+                          })
+    tmp_compare <- tmp_compare + schuller_f5_ref
+    schuller_d5f5_compare[, paste0("d5_", d5)] <- tmp_compare
+  }
+}
+
+schuller_d5f5_plots <- expand.grid(sort(colnames(schuller_d5f5_compare)[-1]), 
+                                sort(colnames(schuller_d5f5_compare)[-1]),
+                                stringsAsFactors=F)
+schuller_d5f5_plots <- lapply(seq(nrow(schuller_d5f5_plots)),
+                           function(x) {
+                             tmp_x <- schuller_d5f5_plots$Var1[x]
+                             tmp_y <- schuller_d5f5_plots$Var2[x]
+                             tmp_cor <- cor(schuller_d5f5_compare[, tmp_x], schuller_d5f5_compare[, tmp_y])
+                             tmp_cor <- round(tmp_cor, 3)
+                             tmp_plot <- ggplot(schuller_d5f5_compare, 
+                                                aes_string(x=tmp_x, y=tmp_y, col="term")) +
+                               geom_point() + geom_abline(slope=1, intercept=0) + theme_bw() + 
+                               theme(legend.position="none") + xlim(-1.5, 1) + ylim(-1.5, 1) +
+                               xlab(sub("_", " = ", tmp_x)) + ylab(sub("_", " = ", tmp_y)) +
+                               ggtitle(paste("cor =", tmp_cor))
+                             return(tmp_plot)
+                           })
+wrap_plots(schuller_d5f5_plots, byrow=T, ncol=length(unique(d5_d3_subsets$d5)))
+```
+
+3' footprint recovery terms across digest lengths (trained on 150 genes)
+
+```{r schuller_d3f3_compare}
+schuller_f3 <- unique(schuller_main_coef$term[schuller_main_coef$type=="genome_f3"])
+schuller_d3_ref <- unique(d5_d3_subsets$d3)[!(paste0("d3", unique(d5_d3_subsets$d3)) %in% names(schuller_coef_150))]
+schuller_f3_ref <- sapply(schuller_f3,
+                       function(x) {
+                         schuller_main_coef$value[schuller_main_coef$term==x &
+                                                 schuller_main_coef$type=="genome_f3" &
+                                                 schuller_main_coef$num_genes==150]
+                       })
+
+schuller_d3f3_compare <- data.frame(term=schuller_f3)
+for(d3 in unique(d5_d3_subsets$d3)) {
+  if(d3 == schuller_d3_ref) {
+    schuller_d3f3_compare[, paste0("d3_", d3)] <- schuller_f3_ref
+  } else {
+    tmp_compare <- sapply(schuller_f3,
+                          function(x) {
+                            schuller_f3_interxn$value[schuller_f3_interxn$d3==paste0("d3=", d3) &
+                                                     schuller_f3_interxn$term==x &
+                                                     schuller_f3_interxn$num_genes==150]
+                          })
+    tmp_compare <- tmp_compare + schuller_f3_ref
+    schuller_d3f3_compare[, paste0("d3_", d3)] <- tmp_compare
+  }
+}
+
+schuller_d3f3_plots <- expand.grid(sort(colnames(schuller_d3f3_compare)[-1]), 
+                                sort(colnames(schuller_d3f3_compare)[-1]),
+                                stringsAsFactors=F)
+schuller_d3f3_plots <- lapply(seq(nrow(schuller_d3f3_plots)),
+                           function(x) {
+                             tmp_x <- schuller_d3f3_plots$Var1[x]
+                             tmp_y <- schuller_d3f3_plots$Var2[x]
+                             tmp_cor <- cor(schuller_d3f3_compare[, tmp_x], schuller_d3f3_compare[, tmp_y])
+                             tmp_cor <- round(tmp_cor, 3)
+                             tmp_plot <- ggplot(schuller_d3f3_compare, 
+                                                aes_string(x=tmp_x, y=tmp_y, col="term")) +
+                               geom_point() + geom_abline(slope=1, intercept=0) + theme_bw() + 
+                               theme(legend.position="none") + xlim(-1.3, 1) + ylim(-1.3, 1) +
+                               xlab(sub("_", " = ", tmp_x)) + ylab(sub("_", " = ", tmp_y)) +
+                               ggtitle(paste("cor =", tmp_cor))
+                             return(tmp_plot)
+                           })
+wrap_plots(schuller_d3f3_plots, byrow=T, ncol=length(unique(d5_d3_subsets$d3)))
+```
+
+Per-transcript footprint counts, before and after correction
+
+```{r schuller_transcript, fig.height=12, cache=T}
+schuller_transcripts <- levels(schuller_bam$transcript)
+
+schuller_transcripts_counts <- data.frame(sapply(c("count", grep("correct", colnames(schuller_bam), value=T)),
+                                              function(x) {
+                                                tmp_counts <- aggregate(formula(paste(x, "~ transcript")),
+                                                                        data=schuller_bam, FUN=sum)
+                                                return(tmp_counts[match(schuller_transcripts, 
+                                                                        tmp_counts$transcript), x])
+                                              }))
+schuller_transcripts_counts <- lapply(grep("correct", colnames(schuller_bam), value=T),
+                                   function(x) {
+                                     data.frame(transcript=schuller_transcripts,
+                                                uncorrected=schuller_transcripts_counts$count,
+                                                corrected=schuller_transcripts_counts[,x],
+                                                num_genes=sub("correct_", "", x))
+                                   })
+schuller_transcripts_counts <- do.call(rbind, schuller_transcripts_counts)
+levels(schuller_transcripts_counts$num_genes) <- paste("trained on", 
+                                                    levels(schuller_transcripts_counts$num_genes), 
+                                                    "genes")
+
+ggplot(schuller_transcripts_counts, aes(x=uncorrected, y=corrected)) + geom_point(alpha=0.5) + 
+  geom_abline(slope=1, intercept=0, col="grey") + facet_wrap(~num_genes, ncol=1) + theme_bw() +
+  ggtitle("All transcripts")
+
+ggplot(schuller_transcripts_counts, aes(x=uncorrected, y=corrected)) + geom_point(alpha=0.5) + 
+  geom_abline(slope=1, intercept=0, col="grey") + facet_wrap(~num_genes, ncol=1) + theme_bw() +
+  xlim(0, 50000) + ylim(0, 50000) + ggtitle("All transcripts, zoomed in")
+```
+
+Per-codon footprint counts, before and after correction
+
+```{r schuller_codon, fig.height=12, cache=T}
+schuller_codons <- aggregate(count ~ transcript + cod_idx, data=schuller_bam, FUN=sum)
+
+for(x in grep("correct", colnames(schuller_bam), value=T)) {
+  tmp_codons <- aggregate(formula(paste(x, "~ transcript + cod_idx")), data=schuller_bam, FUN=sum)
+  tmp_rows <- prodlim::row.match(schuller_codons[, c("transcript", "cod_idx")],
+                                 tmp_codons[, c("transcript", "cod_idx")])
+  schuller_codons[, x] <- tmp_codons[tmp_rows, x]
+}
+
+schuller_codons_subsample <- schuller_codons[sample.int(n=nrow(schuller_codons), size=5e5), ]
+schuller_codons_subsample <- lapply(grep("correct", colnames(schuller_bam), value=T),
+                                 function(x) {
+                                   data.frame(transcript=schuller_codons_subsample$transcript,
+                                              cod_idx=schuller_codons_subsample$cod_idx,
+                                              uncorrected=schuller_codons_subsample$count,
+                                              corrected=schuller_codons_subsample[,x],
+                                              num_genes=sub("correct_", "", x))
+                                 })
+schuller_codons_subsample <- do.call(rbind, schuller_codons_subsample)
+levels(schuller_codons_subsample$num_genes) <- paste("trained on", 
+                                                  levels(schuller_codons_subsample$num_genes),
+                                                  "genes")
+
+ggplot(schuller_codons_subsample, aes(x=uncorrected, y=corrected)) + 
+  geom_point(alpha=0.1) + geom_abline(slope=1, intercept=0, col="grey") + facet_wrap(~num_genes, ncol=1) + 
+  theme_bw() + ggtitle("Random subset of 500,000 codon positions") + ylim(0, 50000)
+
+ggplot(schuller_codons_subsample, aes(x=uncorrected, y=corrected)) + 
+  geom_point(alpha=0.1) + geom_abline(slope=1, intercept=0, col="grey") + facet_wrap(~num_genes, ncol=1) + 
+  theme_bw() + ggtitle("Random subset of 500,000 codon positions, zoomed in") + 
+  coord_cartesian(xlim=c(0,500), ylim=c(0, 2000))
+```
+
+Scaling factors
+
+```{r schuller_scaling}
+schuller_transcripts_counts$scaling <- with(schuller_transcripts_counts, corrected/uncorrected)
+
+schuller_codon_scalings <- lapply(grep("correct", colnames(schuller_bam), value=T),
+                               function(x) {
+                                 tmp_scaling <- data.frame(transcript=schuller_codons$transcript,
+                                                           cod_idx=schuller_codons$cod_idx,
+                                                           scaling=schuller_codons[,x]/schuller_codons$count,
+                                                           num_genes=sub("correct_", "", x))
+                                 tmp_scaling <- subset(tmp_scaling, schuller_codons$count >=10)
+                                 return(tmp_scaling)
+                               })
+schuller_codon_scalings <- do.call(rbind, schuller_codon_scalings)
+
+(ggplot(schuller_transcripts_counts, aes(x=num_genes, y=scaling, fill=num_genes)) + geom_violin() + 
+    scale_y_log10() + theme_bw() + theme(legend.position="none") + geom_hline(yintercept=1) +
+    xlab("") + ylab("scaling factor") + ggtitle("Per transcript") + theme(axis.text.x=element_blank())) / 
+  (ggplot(schuller_codon_scalings, aes(x=num_genes, y=scaling, fill=num_genes)) + geom_violin() + 
+     scale_y_log10() + theme_bw() + theme(legend.position="none") + geom_hline(yintercept=1) +
+     xlab("number of genes in training set") + ylab("scaling factor") + ggtitle("Per codon"))
+```
+
+Unestimatable regression coefficients, by number of genes in training set
+
+```{r schuller_no_coef}
+schuller_na_coef <- do.call(rbind,
+                         lapply(num_genes,
+                                function(x) {
+                                  tmp_coef <- get(paste0("schuller_coef_", x))
+                                  tmp_na <- is.na(tmp_coef)
+                                  if(sum(tmp_na)>0) {
+                                    tmp_na <- data.frame(term=names(tmp_coef)[tmp_na],
+                                                         num_genes=x,
+                                                         stringsAsFactors=F)
+                                    tmp_na$type <- sapply(tmp_na$term,
+                                                          function(y) {
+                                                            if(grepl(":", y)) {
+                                                              tmp_term <- substr(strsplit(y, split=":")[[1]], 1, 2)
+                                                            } else {
+                                                              tmp_term <- sapply(main_terms,
+                                                                                 function(z) {
+                                                                                   grepl(z, y)
+                                                                                 })
+                                                              tmp_term <- main_terms[tmp_term]
+                                                            }
+                                                            return(paste(tmp_term, collapse="_"))
+                                                          })
+                                    return(tmp_na)
+                                  } else {
+                                    return(NULL)
+                                  }
+                                }))
+schuller_na_coef <- do.call(rbind, lapply(num_genes,
+                                       function(x) {
+                                         data.frame(type=unique(schuller_na_coef$type),
+                                                    count=sapply(unique(schuller_na_coef$type),
+                                                                 function(y) {
+                                                                   sum(schuller_na_coef$num_genes==x &
+                                                                         schuller_na_coef$type==y)
+                                                                 }),
+                                                    num_genes=x)
+                                       }))
+schuller_na_coef$num_genes <- factor(schuller_na_coef$num_genes)
+ggplot(schuller_na_coef, aes(x=num_genes, y=count, fill=type)) + geom_col() + theme_bw() + 
+  xlab("number of genes in training set") + ylab("")
+```
+
+```{r schuller_cleanup}
+rm(list=grep("(schuller)|(tmp)", ls(), value=T))
+```
