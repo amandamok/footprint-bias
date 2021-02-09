@@ -23,7 +23,7 @@ weinberg_bam_fname <- "~/iXnos/expts/weinberg_20cds20/process/weinberg.transcrip
 min_prop <- 0.9
 f5_length <- 2
 f3_length <- 3
-num_genes <- c(5, 10, 25, 50, 75, 100, 125, 150)
+num_genes <- c(50, 75, 100, 125, 150, 175, 200)
 num_regression_genes <- max(num_genes)
 
 interxn_model <- formula(count ~ transcript + A + P + E + d5*genome_f5 + d3*genome_f3)

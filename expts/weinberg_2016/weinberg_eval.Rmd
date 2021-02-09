@@ -11,7 +11,7 @@ knitr::opts_chunk$set(fig.width=12, echo=F, warning=F)
 library(ggplot2)
 library(patchwork)
 
-num_genes <- c(5, 10, 25, 50, 75, 100, 125, 150)
+num_genes <- c(50, 75, 100, 125, 150, 175, 200)
 main_terms <- c("transcript", "A", "P", "E", "d5", "d3", "genome_f5", "genome_f3")
 ```
 
