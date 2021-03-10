@@ -9,6 +9,9 @@ reference_data/*ti
 reference_data/*grp
 reference_data/*gff3
 expts/wu_2019/raw_data/SRR*/*
+expts/wu_2019/raw_data/plots
+expts/wu_2019/*/*Rda
+expts/wu_2019/*/*bam
 expts/schuller_2017/*Rda
 expts/schuller_2017/schuller_eval_cache
 expts/schuller_2017/schuller_eval_files
