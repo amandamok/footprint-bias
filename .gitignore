@@ -2,6 +2,12 @@
 sample_data/*
 archive/*
 reference_data/scer.transcripts.aa*
+reference_data/*ebwt
+reference_data/*idx.fa
+reference_data/*seq
+reference_data/*ti
+reference_data/*grp
+reference_data/*gff3
 expts/wu_2019/raw_data/SRR*/*
 expts/schuller_2017/*Rda
 expts/schuller_2017/schuller_eval_cache
