@@ -20,4 +20,7 @@ expts/weinberg_2016/weinberg_eval_cache
 expts/weinberg_2016/weinberg_eval_files
 expts/simulated_data/*Bias/*
 expts/simulated_data/*Rda
+expts/goodarzi_2016/*/*bam
+expts/goodarzi_2016/*/*Rda
+expts/goodarzi_2016/raw_data/SRR*
 scripts/*Rda
