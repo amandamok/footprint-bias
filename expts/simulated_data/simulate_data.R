@@ -8,7 +8,7 @@ library(here)
 simriboseq_dir <- "~/simRiboSeq"
 
 script_dir <- file.path(simriboseq_dir, "scripts")
-output_dir <- file.path(here(), "expts", "scer_simASite_biasDelta_f5_2_f3_3")
+output_dir <- file.path(here(), "expts", "simulated_data")
 ref_dir <- file.path(simriboseq_dir, "refData")
 
 scripts <- c("helper.R", "simTranscriptome.R", "simRibosomeDist.R", "simFootprints.R")
@@ -103,9 +103,10 @@ save(scer_rho, scer_pi, file=file.path(output_dir, "rho_pi.Rda"))
 # no extra base: noRTbias
 
 simulation_name <- "noBias"
-if(!dir.exists(file.path(output_dir, simulation_name))) {
-  dir.create(file.path(output_dir, simulation_name))
-}
+simulation_dir <- file.path(output_dir, simulation_name)
+parts_dir <- file.path(simulation_dir, "parts")
+if(!dir.exists(simulation_dir)) { dir.create(simulation_dir) }
+if(!dir.exists(parts_dir)) { dir.create(parts_dir) }
 
 for(i in 1:nParts) {
   print(paste("Part", i, "of", nParts))
@@ -118,9 +119,9 @@ for(i in 1:nParts) {
                              ligBias=no_n3bias, RTBias=noRTbias, circBias=no_p5bias,
                              digest_transcript=digest_transcript))
   writeFootprintsFQ(get(partName),
-                    file.path(output_dir, simulation_name, paste0(part_filename, ".fq")))
+                    file.path(parts_dir, paste0(part_filename, ".fq")))
   save(list=partName,
-       file=file.path(output_dir, simulation_name, paste0(part_filename, ".Rda")))
+       file=file.path(parts_dir, paste0(part_filename, ".Rda")))
   rm(list=partName)
 }
 
@@ -134,9 +135,10 @@ for(i in 1:nParts) {
 # no extra base: noRTbias
 
 simulation_name <- "n3Bias"
-if(!dir.exists(file.path(output_dir, simulation_name))) {
-  dir.create(file.path(output_dir, simulation_name))
-}
+simulation_dir <- file.path(output_dir, simulation_name)
+parts_dir <- file.path(simulation_dir, "parts")
+if(!dir.exists(simulation_dir)) { dir.create(simulation_dir) }
+if(!dir.exists(parts_dir)) { dir.create(parts_dir) }
 
 for(i in 1:nParts) {
   print(paste("Part", i, "of", nParts))
@@ -149,9 +151,9 @@ for(i in 1:nParts) {
                              ligBias=green_n3bias_3nt, RTBias=noRTbias, circBias=no_p5bias,
                              digest_transcript=digest_transcript))
   writeFootprintsFQ(get(partName),
-                    file.path(output_dir, simulation_name, paste0(part_filename, ".fq")))
+                    file.path(parts_dir, paste0(part_filename, ".fq")))
   save(list=partName,
-       file=file.path(output_dir, simulation_name, paste0(part_filename, ".Rda")))
+       file=file.path(parts_dir, paste0(part_filename, ".Rda")))
   rm(list=partName)
 }
 
@@ -164,9 +166,10 @@ for(i in 1:nParts) {
 # no extra base: noRTbias
 
 simulation_name <- "p5Bias"
-if(!dir.exists(file.path(output_dir, simulation_name))) {
-  dir.create(file.path(output_dir, simulation_name))
-}
+simulation_dir <- file.path(output_dir, simulation_name)
+parts_dir <- file.path(simulation_dir, "parts")
+if(!dir.exists(simulation_dir)) { dir.create(simulation_dir) }
+if(!dir.exists(parts_dir)) { dir.create(parts_dir) }
 
 for(i in 1:nParts) {
   print(paste("Part", i, "of", nParts))
@@ -179,9 +182,9 @@ for(i in 1:nParts) {
                              ligBias=no_n3bias, RTBias=noRTbias, circBias=green_p5bias_2nt,
                              digest_transcript=digest_transcript))
   writeFootprintsFQ(get(partName),
-                    file.path(output_dir, simulation_name, paste0(part_filename, ".fq")))
+                    file.path(parts_dir, paste0(part_filename, ".fq")))
   save(list=partName,
-       file=file.path(output_dir, simulation_name, paste0(part_filename, ".Rda")))
+       file=file.path(parts_dir, paste0(part_filename, ".Rda")))
   rm(list=partName)
 }
 
@@ -194,9 +197,10 @@ for(i in 1:nParts) {
 # no extra base: noRTbias
 
 simulation_name <- "bothBias"
-if(!dir.exists(file.path(output_dir, simulation_name))) {
-  dir.create(file.path(output_dir, simulation_name))
-}
+simulation_dir <- file.path(output_dir, simulation_name)
+parts_dir <- file.path(simulation_dir, "parts")
+if(!dir.exists(simulation_dir)) { dir.create(simulation_dir) }
+if(!dir.exists(parts_dir)) { dir.create(parts_dir) }
 
 for(i in 1:nParts) {
   print(paste("Part", i, "of", nParts))
@@ -209,9 +213,9 @@ for(i in 1:nParts) {
                              ligBias=green_n3bias_3nt, RTBias=noRTbias, circBias=green_p5bias_2nt,
                              digest_transcript=digest_transcript))
   writeFootprintsFQ(get(partName),
-                    file.path(output_dir, simulation_name, paste0(part_filename, ".fq")))
+                    file.path(parts_dir, paste0(part_filename, ".fq")))
   save(list=partName,
-       file=file.path(output_dir, simulation_name, paste0(part_filename, ".Rda")))
+       file=file.path(parts_dir, paste0(part_filename, ".Rda")))
   rm(list=partName)
 }
 

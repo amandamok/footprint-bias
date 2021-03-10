@@ -18,6 +18,6 @@ expts/tunney_2018/tunney_eval_files
 expts/weinberg_2016/*Rda
 expts/weinberg_2016/weinberg_eval_cache
 expts/weinberg_2016/weinberg_eval_files
-expts/simulated_data/*/*fq
-expts/eximulated_data/*/*Rda
+expts/simulated_data/*Bias/*
+expts/simulated_data/*Rda
 scripts/*Rda
