@@ -3,7 +3,7 @@ sample_data/*
 archive/*
 reference_data/scer.transcripts.aa*
 reference_data/*ebwt
-reference_data/*idx.fa
+reference_data/*fa
 reference_data/*seq
 reference_data/*ti
 reference_data/*grp
