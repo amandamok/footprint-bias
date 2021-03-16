@@ -94,4 +94,3 @@ if(!file.exists(LM1a_subsets_fname)) {
 
 # pick transcripts for training -------------------------------------------
 
-
