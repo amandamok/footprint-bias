@@ -32,7 +32,7 @@ do
 
     # 6. compute multi-mapping weights
     echo "... computing multi-mapping weights"
-    rsem-calculate-expression --seed-length ${min_length} -p 20 --sam \
+    rsem-calculate-expression --seed-length ${min_length} -p 20 --alignments \
         ${expt}_footprints.sam ${ref_dir}/grch38.transcripts ${expt} > \
         ${expt}.rsem.stdout 2> ${expt}.rsem.stderr
 
