@@ -12,6 +12,8 @@ min_utr5_length <- 18 + 2
 min_utr3_length <- 12 + 2
 min_cds_length <- 10
 
+ref_dir <- file.path(here(), "reference_data")
+
 combine_list <- function(list_obj) {
   # list_obj: list of Bioconductor List objects
   list_obj <- unlist(list_obj)
@@ -45,7 +47,7 @@ get_unique_cds <- function(gene_cds) {
 }
 
 # load gencode gff annotations
-gff_fname <- file.path(here(), "reference_data", "gencode.v36.annotation.gff3")
+gff_fname <- file.path(ref_dir, "gencode.v36.annotation.gff3")
 gff <- rtracklayer::import.gff3(gff_fname)
 gff_coding <- gff[gff$gene_type == "protein_coding" & gff$type=="transcript"]
 txdb <- makeTxDbFromGFF(gff_fname)
@@ -96,7 +98,7 @@ unique_cds <- foreach(chunk = split(cds_seq_by_gene,
 unique_cds <- combine_list(unique_cds)
 unique_cds_seq <- as.character(unique_cds)
 
-# 6. pad out 5' UTRs of insufficient lengths
+# 4. pad out 5' UTRs of insufficient lengths
 utr5_seq <- utr5_seq[names(utr5_seq) %in% names(unique_cds_seq)]
 good_utr5_seq <- utr5_seq[nchar(utr5_seq) >= min_utr5_length]
 bad_utr5 <- names(utr5_seq)[nchar(utr5_seq) < min_utr5_length]
@@ -105,7 +107,7 @@ bad_utr5_seq <- extractUpstreamSeqs(Hsapiens, bad_utr5_seq, width=min_utr5_lengt
 names(bad_utr5_seq) <- bad_utr5
 utr5_seq <- c(good_utr5_seq, as.character(bad_utr5_seq))
 
-# 6. pad out 3' UTRs of insufficient lengths
+# 5. pad out 3' UTRs of insufficient lengths
 utr3_seq <- utr3_seq[names(utr3_seq) %in% names(unique_cds_seq)]
 good_utr3_seq <- utr3_seq[nchar(utr3_seq) >= min_utr3_length]
 bad_utr3 <- names(utr3_seq)[nchar(utr3_seq) < min_utr3_length]
@@ -116,7 +118,7 @@ bad_utr3_seq <- getSeq(Hsapiens, bad_utr3_seq)
 names(bad_utr3_seq) <- bad_utr3
 utr3_seq <- c(good_utr3_seq, as.character(bad_utr3_seq))
 
-# 8. write transcript sequences to file
+# 6. write transcript sequences to file
 # concatenate 5' UTR, CDS, and 3' UTR
 transcript_seqs <- data.frame(utr5 = utr5_seq[match(names(unique_cds_seq), names(utr5_seq))],
                               cds = unique_cds_seq,
@@ -126,9 +128,9 @@ transcripts_fasta <- apply(transcript_seqs, 1, paste, collapse="")
 transcripts_fasta <- DNAStringSet(transcripts_fasta)
 # write to file
 writeXStringSet(transcripts_fasta,
-                filepath=file.path(here(), "reference_data", "grch38.transcripts.fa"))
+                filepath=file.path(ref_dir, "grch38.transcripts.fa"))
 
-# 6. write transcript lengths to file
+# 7. write transcript lengths to file
 # extract region lengths
 transcript_lengths <- data.frame(transcript_id = rownames(transcript_seqs),
                                  utr5_length = nchar(transcript_seqs$utr5),
@@ -136,17 +138,39 @@ transcript_lengths <- data.frame(transcript_id = rownames(transcript_seqs),
                                  utr3_length = nchar(transcript_seqs$utr3))
 # write to file
 write.table(transcript_lengths,
-            file=file.path(here(), "reference_data", "grch38.transcripts.lengths.tsv"),
+            file=file.path(ref_dir, "grch38.transcripts.lengths.tsv"),
             quote=F, sep="\t", row.names=F, col.names=F)
-# write transcript to gene conversion
+
+# 8. write transcript to gene conversion
 mapping <- data.frame(subset(mapping, tx_name %in% transcript_lengths$transcript_id))
 mapping <- mapping[, -1]
 mapping$gene_name <- gff$gene_name[match(mapping$gene_id, gff$gene_id)]
 transcripts_withUTRs <- intersect(names(good_utr5_seq), names(good_utr3_seq))
 mapping$with_UTRs <- mapping$tx_name %in% transcripts_withUTRs
 write.table(mapping,
-            file=file.path(here(), "reference_data", "grch38.transcripts.mappings.tsv"),
+            file=file.path(ref_dir, "grch38.transcripts.mappings.tsv"),
             quote=F, sep="\t", row.names=F, col.names=T)
+
+# 9. compute codon composition (counts) per transcript
+codons <- apply(expand.grid(c("A", "T", "C", "G"),
+                            c("A", "T", "C", "G"),
+                            c("A", "T", "C", "G")),
+                1, paste, collapse="")
+transcript_codons <- sapply(as.character(transcript_seqs$cds),
+                            function(x) {
+                              # split CDS into codons
+                              as_codon <- strsplit(x, split="")[[1]]
+                              as_codon <- paste0(as_codon[c(T, F, F)],
+                                                 as_codon[c(F, T, F)],
+                                                 as_codon[c(F, F, T)])
+                              # compute codon counts
+                              sapply(codons, function(y) sum(as_codon==y))
+                            })
+transcript_codons <- data.frame(t(transcript_codons),
+                                row.names=rownames(transcript_seq))
+write.table(transcript_codons,
+            file=file.path(ref_dir, "grch38.transcripts.codonCounts.tsv"),
+            quote=F, sep="\t", row.names=T, col.names=T)
 
 # # ncRNA -------------------------------------------------------------------
 #
