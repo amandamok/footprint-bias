@@ -24,6 +24,7 @@ f3_length <- 3
 num_genes <- 100
 exclude_codon5 <- 10
 exclude_codon3 <- 10
+minimum_cds_length <- exclude_codon5 + exclude_codon3 + 10
 
 sra_MDA <- c("SRR3129936", "SRR3129937")
 sra_LM2 <- c("SRR3129940", "SRR3129941")
@@ -133,8 +134,12 @@ if(!file.exists(training_set_fname)) {
                                              rownames(transcript_codons)),]
   num_stop_codons <- rowSums(num_stop_codons[, c("TAG", "TAA", "TGA")])
   training_set <- subset(training_set, num_stop_codons == 1) # n=20,714
+  ## sufficient number of codons
+  num_codons <- transcript_lengths$cds_length[match(training_set$tx_name,
+                                                    transcript_lengths$transcript)] / 3
+  training_set <- subset(training_set, num_codons > minimum_cds_length) # n=20,685
   # pick top representative transcript per gene: maximum average of median codon density
-  training_set <- split(training_set, training_set$gene_id) # n=11,113
+  training_set <- split(training_set, training_set$gene_id) # n=11,112
   training_set <- lapply(training_set,
                          function(x) {
                            x[which.max(x$median),]
@@ -155,8 +160,9 @@ if(!file.exists(training_set_fname)) {
   ggsave(training_set_plot,
          filename=file.path(results_dir, "MDA_LM2_training_set.pdf"))
   # write results
-  writeLines(as.character(training_set$tx_name), training_set_fname)
-  save(mapping, file=file.path(results_dir, "transcript_mapping.tsv"))
+  training_set <- as.character(training_set$tx_name)[1:num_genes]
+  writeLines(training_set, training_set_fname)
+  save(mapping, file=file.path(results_dir, "transcript_mapping.Rda"))
 } else {
   training_set <- readLines(training_set_fname)
 }

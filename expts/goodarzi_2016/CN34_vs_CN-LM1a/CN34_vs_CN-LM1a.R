@@ -15,7 +15,7 @@ mapping <- read.table(mapping_fname, header=T, stringsAsFactors=F)
 transcript_codons_fname <- file.path(ref_dir, "grch38.transcripts.codonCounts.tsv")
 transcript_codons <- read.table(transcript_codons_fname)
 
-results_dir <- file.path(here(), "expts", "goodarzi_2016", "CN34_vs_CN34-LM1a")
+results_dir <- file.path(here(), "expts", "goodarzi_2016", "CN34_vs_CN-LM1a")
 raw_data_dir <- file.path(here(), "expts", "goodarzi_2016", "raw_data")
 
 min_prop <- 0.9
@@ -24,6 +24,7 @@ f3_length <- 3
 num_genes <- 100
 exclude_codon5 <- 10
 exclude_codon3 <- 10
+minimum_cds_length <- exclude_codon5 + exclude_codon3 + 10
 
 sra_CN34 <- c("SRR3129936", "SRR3129937")
 sra_LM1a <- c("SRR3129940", "SRR3129941")
@@ -127,14 +128,18 @@ if(!file.exists(training_set_fname)) {
   mapping$median <- with(mapping, (CN34_median + LM1a_median)/2)
   # filter transcripts
   ## transcript counts > 0 for both conditions
-  training_set <- subset(mapping, (CN34_ct > 0) & (LM1a_ct > 0)) # n=22,405
+  training_set <- subset(mapping, (CN34_ct > 0) & (LM1a_ct > 0)) # n=23,190
   ## only 1 stop codon
   num_stop_codons <- transcript_codons[match(training_set$tx_name,
                                              rownames(transcript_codons)),]
   num_stop_codons <- rowSums(num_stop_codons[, c("TAG", "TAA", "TGA")])
-  training_set <- subset(training_set, num_stop_codons == 1) # n=20,714
+  training_set <- subset(training_set, num_stop_codons == 1) # n=21,359
+  ## sufficient number of codons
+  num_codons <- transcript_lengths$cds_length[match(training_set$tx_name,
+                                                    transcript_lengths$transcript)] / 3
+  training_set <- subset(training_set, num_codons > minimum_cds_length) # n=21,324
   # pick top representative transcript per gene: maximum average of median codon density
-  training_set <- split(training_set, training_set$gene_id) # n=11,113
+  training_set <- split(training_set, training_set$gene_id) # n=11,227
   training_set <- lapply(training_set,
                          function(x) {
                            x[which.max(x$median),]
@@ -155,8 +160,9 @@ if(!file.exists(training_set_fname)) {
   ggsave(training_set_plot,
          filename=file.path(results_dir, "CN34_LM1a_training_set.pdf"))
   # write results
-  writeLines(as.character(training_set$tx_name), training_set_fname)
-  save(mapping, file=file.path(results_dir, "transcript_mapping.tsv"))
+  training_set <- as.character(training_set$tx_name)[1:num_genes]
+  writeLines(training_set, training_set_fname)
+  save(mapping, file=file.path(results_dir, "transcript_mapping.Rda"))
 } else {
   training_set <- readLines(training_set_fname)
 }
