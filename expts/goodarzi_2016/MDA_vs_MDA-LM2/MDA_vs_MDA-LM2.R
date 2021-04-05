@@ -196,7 +196,8 @@ if(!file.exists(training_data_fname)) {
 
 # 5. compute interaction regression ---------------------------------------
 
-interxn_model_fname <- file.path(results_dir, "interxn_model_fit_200genes.Rda")
+interxn_model_fname <- file.path(results_dir,
+                                 paste0("interxn_model_fit_", num_genes, "genes.Rda"))
 if(!file.exists(interxn_model_fname)) {
   interxn_model_fit <- MASS::glm.nb(interxn_model,
                                     data=interxn_training, model=F)
@@ -220,12 +221,14 @@ volcano_plot <- ggplot(interxn_coef, aes(x=Estimate, y=p_log10)) +
   geom_point(aes(col=aa)) + geom_hline(yintercept=0) + geom_vline(xintercept=0) +
   xlab(expr(beta)) + ylab("-log10(p value)") + labs(color="amino acid") +
   ggtitle("MDA vs. MDA-LM2") + theme_classic() +
-  geom_text(data=subset(interxn_coef, p_log10>5),
+  geom_text(data=subset(interxn_coef, p.adjust(Pr...z.., "bonferroni") < 0.05),
             aes(x=Estimate, y=p_log10, label=codon),
-            nudge_y=0.25, check_overlap=T) +
+            check_overlap=T) +
   geom_text(data=subset(interxn_coef, codon %in% c("CGG", "GAA", "GAG")),
             aes(x=Estimate, y=p_log10, label=codon),
-            nudge_y=0.25, check_overlap=T, col="red")
+            check_overlap=T, col="red") +
+  geom_hline(yintercept=-log10(0.05/nrow(interxn_coef)),
+             col="red", linetype="dashed")
 ggsave(volcano_plot,
        filename=file.path(results_dir, "MDA_LM2_volcano.pdf"))
 
@@ -233,8 +236,10 @@ ggsave(volcano_plot,
 
 # MDA
 ## fit regression
-MDA_model_fname <- file.path(results_dir, "MDA_model_fit_200genes.Rda")
 MDA_training <- subset(interxn_training, expt=="MDA")
+MDA_training <- subset(MDA_training,
+                       with(MDA_training, paste0("d5_", d5, "_d3_", d3)) %in% MDA_subset_names)
+MDA_model_fname <- file.path(results_dir, paste0("MDA_model_fit_", num_genes, "genes.Rda"))
 if(!file.exists(MDA_model_fname)) {
   MDA_model_fit <- MASS::glm.nb(orig_model, data=MDA_training, model=F)
   save(MDA_model_fit, file=MDA_model_fname)
@@ -262,50 +267,23 @@ if(!file.exists(MDA_bias_fname)) {
                                          transcript_fa_fname, transcript_length_fname,
                                          type="nt")
   save(MDA_bias_raw_codon, MDA_bias_raw_nt,
-       # MDA_bias_corrected_codon, MDA_bias_corrected_nt,
+       MDA_bias_corrected_codon, MDA_bias_corrected_nt,
        file=file.path(results_dir, "MDA_bias.Rda"))
+  MDA_bias_plot <- (plot_bias(MDA_bias_raw_codon)+ggtitle("MDA: uncorrected") + ylim(0, 0.05)) +
+    (plot_bias(MDA_bias_raw_nt) + ylim(0, 0.02)) +
+    (plot_bias(MDA_bias_corrected_codon)+ggtitle("MDA: corrected") + ylim(0, 0.05)) +
+    (plot_bias(MDA_bias_corrected_nt) + ylim(0, 0.02)) +
+    plot_layout(ncol=2, byrow=F)
+  ggsave(MDA_bias_plot,
+         filename=file.path(results_dir, "MDA_bias_plot.pdf"))
 }
-
-# # debugging
-# MDA_transcript_count <- aggregate(count ~ transcript,
-#                                   data=MDA_bam,
-#                                   FUN=sum)
-# MDA_transcript_count$corrected_count <- aggregate(corrected_count ~ transcript,
-#                                                   data=MDA_bam,
-#                                                   FUN=sum)$corrected_count
-# MDA_transcript_count$gene_name <- mapping$gene_name[match(MDA_transcript_count$transcript,
-#                                                           mapping$tx_name)]
-# MDA_training_transcripts <- levels(MDA_training$transcript)
-# MDA_training_genes <- mapping$gene_name[match(MDA_training_transcripts, mapping$tx_name)]
-# MDA_transcript_count_subset <- subset(MDA_transcript_count, gene_name %in% MDA_training_genes)
-# (ggplot(MDA_transcript_count_subset, aes(x=count, y=corrected_count, col=gene_name)) +
-#     geom_point(alpha=0.5, size=2) + geom_abline(slope=1, intercept=0) + theme_bw() +
-#     theme(legend.position="none") + ggtitle("MDA")) +
-#   ((ggplot(MDA_transcript_count_subset, aes(x=count)) +
-#       geom_density() + theme_bw() + ylab("")) /
-#      (ggplot(MDA_transcript_count_subset, aes(x=corrected_count)) +
-#         geom_density() + theme_bw() + ylab("")))
-# MDA_coef <- data.frame(summary(MDA_model_fit)$coefficients)
-# MDA_coef$coef <- NA
-# MDA_coef$coef[grepl("^transcript", rownames(MDA_coef))] <- "transcript"
-# MDA_coef$coef[grepl("^A", rownames(MDA_coef))] <- "A"
-# MDA_coef$coef[grepl("^P", rownames(MDA_coef))] <- "P"
-# MDA_coef$coef[grepl("^E", rownames(MDA_coef))] <- "E"
-# MDA_coef$coef[grepl("^genome_f5", rownames(MDA_coef))] <- "f5"
-# MDA_coef$coef[grepl("^genome_f3", rownames(MDA_coef))] <- "f3"
-# MDA_coef$coef[grepl(":genome_f5", rownames(MDA_coef))] <- "f5_interxn"
-# MDA_coef$coef[grepl(":genome_f3", rownames(MDA_coef))] <- "f3_interxn"
-# MDA_coef$coef[grepl("^d5", rownames(MDA_coef)) & !grepl(":", rownames(MDA_coef))] <- "d5"
-# MDA_coef$coef[grepl("^d3", rownames(MDA_coef)) & !grepl(":", rownames(MDA_coef))] <- "d3"
-# MDA_coef$p_log10 <- -log10(MDA_coef$Pr...z..)
-# ggplot(subset(MDA_coef, coef %in% c("f5", "f3")),
-#        aes(x=Estimate, y=p_log10, col=coef)) +
-#   geom_point() + theme_bw()
 
 # LM2
 ## fit regression
-LM2_model_fname <- file.path(results_dir, "LM2_model_fit_200genes.Rda")
 LM2_training <- subset(interxn_training, expt=="LM2")
+LM2_training <- subset(LM2_training,
+                       with(LM2_training, paste0("d5_", d5, "_d3_", d3)) %in% LM2_subset_names)
+LM2_model_fname <- file.path(results_dir, paste0("LM2_model_fit_", num_genes, "genes.Rda"))
 if(!file.exists(LM2_model_fname)) {
   LM2_model_fit <- MASS::glm.nb(orig_model, data=LM2_training, model=F)
   save(LM2_model_fit, file=LM2_model_fname)
@@ -333,8 +311,15 @@ if(!file.exists(LM2_bias_fname)) {
                                          transcript_fa_fname, transcript_length_fname,
                                          type="nt")
   save(LM2_bias_raw_codon, LM2_bias_raw_nt,
-       # LM2_bias_corrected_codon, LM2_bias_corrected_nt,
+       LM2_bias_corrected_codon, LM2_bias_corrected_nt,
        file=file.path(results_dir, "LM2_bias.Rda"))
+  LM2_bias_plot <- (plot_bias(LM2_bias_raw_codon)+ggtitle("LM2: uncorrected") + ylim(0, 0.045)) +
+    (plot_bias(LM2_bias_raw_nt) + ylim(0, 0.03)) +
+    (plot_bias(LM2_bias_corrected_codon)+ggtitle("LM2: corrected") + ylim(0, 0.045)) +
+    (plot_bias(LM2_bias_corrected_nt) + ylim(0, 0.03)) +
+    plot_layout(ncol=2, byrow=F)
+  ggsave(LM2_bias_plot,
+         filename=file.path(results_dir, "LM2_bias_plot.pdf"))
 }
 
 q(save="no")

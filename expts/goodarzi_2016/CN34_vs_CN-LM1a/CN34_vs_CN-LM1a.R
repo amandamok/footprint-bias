@@ -196,7 +196,8 @@ if(!file.exists(training_data_fname)) {
 
 # 5. compute interaction regression ---------------------------------------
 
-interxn_model_fname <- file.path(results_dir, "interxn_model_fit_200genes.Rda")
+interxn_model_fname <- file.path(results_dir,
+                                 paste0("interxn_model_fit_", num_genes, "genes.Rda"))
 if(!file.exists(interxn_model_fname)) {
   interxn_model_fit <- MASS::glm.nb(interxn_model,
                                     data=interxn_training, model=F)
@@ -220,21 +221,27 @@ volcano_plot <- ggplot(interxn_coef, aes(x=Estimate, y=p_log10)) +
   geom_point(aes(col=aa)) + geom_hline(yintercept=0) + geom_vline(xintercept=0) +
   xlab(expr(beta)) + ylab("-log10(p value)") + labs(color="amino acid") +
   ggtitle("CN34 vs. CN34-LM1a") + theme_classic() +
-  geom_text(data=subset(interxn_coef, p_log10>5),
+  geom_text(data=subset(interxn_coef, p.adjust(Pr...z.., "bonferroni") < 0.05),
             aes(x=Estimate, y=p_log10, label=codon),
-            nudge_y=0.25, check_overlap=T) +
+            check_overlap=T) +
   geom_text(data=subset(interxn_coef, codon %in% c("CGG", "GAA", "GAG")),
             aes(x=Estimate, y=p_log10, label=codon),
-            nudge_y=0.25, check_overlap=T, col="red")
+            check_overlap=T, col="red") +
+  geom_hline(yintercept=-log10(0.05/nrow(interxn_coef)),
+             col="red", linetype="dashed")
 ggsave(volcano_plot,
        filename=file.path(results_dir, "CN34_LM1a_volcano.pdf"))
+
+rm(interxn_model_fit)
 
 # 6. evaluate bias correction ---------------------------------------------
 
 # CN34
 ## fit regression
-CN34_model_fname <- file.path(results_dir, "CN34_model_fit_200genes.Rda")
 CN34_training <- subset(interxn_training, expt=="CN34")
+CN34_training <- subset(CN34_training,
+                        with(CN34_training, paste0("d5_", d5, "_d3_", d3)) %in% CN34_subset_names)
+CN34_model_fname <- file.path(results_dir, paste0("CN34_model_fit_", num_genes, "genes.Rda"))
 if(!file.exists(CN34_model_fname)) {
   CN34_model_fit <- MASS::glm.nb(orig_model, data=CN34_training, model=F)
   save(CN34_model_fit, file=CN34_model_fname)
@@ -262,50 +269,23 @@ if(!file.exists(CN34_bias_fname)) {
                                          transcript_fa_fname, transcript_length_fname,
                                          type="nt")
   save(CN34_bias_raw_codon, CN34_bias_raw_nt,
-       # CN34_bias_corrected_codon, CN34_bias_corrected_nt,
+       CN34_bias_corrected_codon, CN34_bias_corrected_nt,
        file=file.path(results_dir, "CN34_bias.Rda"))
+  CN34_bias_plot <- (plot_bias(CN34_bias_raw_codon)+ggtitle("CN34: uncorrected") + ylim(0, 0.055)) +
+    (plot_bias(CN34_bias_raw_nt) + ylim(0, 0.02)) +
+    (plot_bias(CN34_bias_corrected_codon)+ggtitle("CN34: corrected") + ylim(0, 0.055)) +
+    (plot_bias(CN34_bias_corrected_nt) + ylim(0, 0.02)) +
+    plot_layout(ncol=2, byrow=F)
+  ggsave(CN34_bias_plot,
+         filename=file.path(results_dir, "CN34_bias_plot.pdf"))
 }
-
-# # debugging
-# CN34_transcript_count <- aggregate(count ~ transcript,
-#                                   data=CN34_bam,
-#                                   FUN=sum)
-# CN34_transcript_count$corrected_count <- aggregate(corrected_count ~ transcript,
-#                                                   data=CN34_bam,
-#                                                   FUN=sum)$corrected_count
-# CN34_transcript_count$gene_name <- mapping$gene_name[match(CN34_transcript_count$transcript,
-#                                                           mapping$tx_name)]
-# CN34_training_transcripts <- levels(CN34_training$transcript)
-# CN34_training_genes <- mapping$gene_name[match(CN34_training_transcripts, mapping$tx_name)]
-# CN34_transcript_count_subset <- subset(CN34_transcript_count, gene_name %in% CN34_training_genes)
-# (ggplot(CN34_transcript_count_subset, aes(x=count, y=corrected_count, col=gene_name)) +
-#     geom_point(alpha=0.5, size=2) + geom_abline(slope=1, intercept=0) + theme_bw() +
-#     theme(legend.position="none") + ggtitle("CN34")) +
-#   ((ggplot(CN34_transcript_count_subset, aes(x=count)) +
-#       geom_density() + theme_bw() + ylab("")) /
-#      (ggplot(CN34_transcript_count_subset, aes(x=corrected_count)) +
-#         geom_density() + theme_bw() + ylab("")))
-# CN34_coef <- data.frame(summary(CN34_model_fit)$coefficients)
-# CN34_coef$coef <- NA
-# CN34_coef$coef[grepl("^transcript", rownames(CN34_coef))] <- "transcript"
-# CN34_coef$coef[grepl("^A", rownames(CN34_coef))] <- "A"
-# CN34_coef$coef[grepl("^P", rownames(CN34_coef))] <- "P"
-# CN34_coef$coef[grepl("^E", rownames(CN34_coef))] <- "E"
-# CN34_coef$coef[grepl("^genome_f5", rownames(CN34_coef))] <- "f5"
-# CN34_coef$coef[grepl("^genome_f3", rownames(CN34_coef))] <- "f3"
-# CN34_coef$coef[grepl(":genome_f5", rownames(CN34_coef))] <- "f5_interxn"
-# CN34_coef$coef[grepl(":genome_f3", rownames(CN34_coef))] <- "f3_interxn"
-# CN34_coef$coef[grepl("^d5", rownames(CN34_coef)) & !grepl(":", rownames(CN34_coef))] <- "d5"
-# CN34_coef$coef[grepl("^d3", rownames(CN34_coef)) & !grepl(":", rownames(CN34_coef))] <- "d3"
-# CN34_coef$p_log10 <- -log10(CN34_coef$Pr...z..)
-# ggplot(subset(CN34_coef, coef %in% c("f5", "f3")),
-#        aes(x=Estimate, y=p_log10, col=coef)) +
-#   geom_point() + theme_bw()
 
 # LM1a
 ## fit regression
-LM1a_model_fname <- file.path(results_dir, "LM1a_model_fit_200genes.Rda")
 LM1a_training <- subset(interxn_training, expt=="LM1a")
+LM1a_training <- subset(LM1a_training,
+                        with(LM1a_training, paste0("d5_", d5, "_d3_", d3)) %in% LM1a_subset_names)
+LM1a_model_fname <- file.path(results_dir, paste0("LM1a_model_fit_", num_genes, "genes.Rda"))
 if(!file.exists(LM1a_model_fname)) {
   LM1a_model_fit <- MASS::glm.nb(orig_model, data=LM1a_training, model=F)
   save(LM1a_model_fit, file=LM1a_model_fname)
@@ -333,8 +313,15 @@ if(!file.exists(LM1a_bias_fname)) {
                                          transcript_fa_fname, transcript_length_fname,
                                          type="nt")
   save(LM1a_bias_raw_codon, LM1a_bias_raw_nt,
-       # LM1a_bias_corrected_codon, LM1a_bias_corrected_nt,
+       LM1a_bias_corrected_codon, LM1a_bias_corrected_nt,
        file=file.path(results_dir, "LM1a_bias.Rda"))
+  LM1a_bias_plot <- (plot_bias(LM1a_bias_raw_codon)+ggtitle("LM1a: uncorrected") + ylim(0, 0.05)) +
+    (plot_bias(LM1a_bias_raw_nt) + ylim(0, 0.03)) +
+    (plot_bias(LM1a_bias_corrected_codon)+ggtitle("LM1a: corrected") + ylim(0, 0.05)) +
+    (plot_bias(LM1a_bias_corrected_nt) + ylim(0, 0.03)) +
+    plot_layout(ncol=2, byrow=F)
+  ggsave(LM1a_bias_plot,
+         filename=file.path(results_dir, "LM1a_bias_plot.pdf"))
 }
 
 q(save="no")
