@@ -50,7 +50,8 @@ f5_coefs <- lapply(expts,
                      model_coef <- data.frame(summary(model_fit_100)$coefficients)
                      model_coef <- subset(model_coef,
                                           grepl("^genome_f5", rownames(model_coef)))
-                     model_coef$f5 <- sub("genome_f5", "", rownames(model_coef))
+                     model_coef$seq <- sub("genome_f5", "", rownames(model_coef))
+                     model_coef$expt <- expt
                      return(model_coef)
                    })
 names(f5_coefs) <- expts
@@ -60,7 +61,8 @@ f3_coefs <- lapply(expts,
                      model_coef <- data.frame(summary(model_fit_100)$coefficients)
                      model_coef <- subset(model_coef,
                                           grepl("^genome_f3", rownames(model_coef)))
-                     model_coef$f3 <- sub("genome_f3", "", rownames(model_coef))
+                     model_coef$seq <- sub("genome_f3", "", rownames(model_coef))
+                     model_coef$expt <- expt
                      return(model_coef)
                    })
 names(f3_coefs) <- expts
@@ -69,17 +71,17 @@ names(f3_coefs) <- expts
 
 no_p5bias <- no_p5bias / no_p5bias["AA"]
 green_p5bias_2nt <- green_p5bias_2nt / green_p5bias_2nt["AA"]
-f5_coefs$noBias$sim <- no_p5bias[f5_coefs$noBias$f5]
-f5_coefs$n3Bias$sim <- no_p5bias[f5_coefs$n3Bias$f5]
-f5_coefs$p5Bias$sim <- green_p5bias_2nt[f5_coefs$p5Bias$f5]
-f5_coefs$bothBias$sim <- green_p5bias_2nt[f5_coefs$bothBias$f5]
+f5_coefs$noBias$sim <- no_p5bias[f5_coefs$noBias$seq]
+f5_coefs$n3Bias$sim <- no_p5bias[f5_coefs$n3Bias$seq]
+f5_coefs$p5Bias$sim <- green_p5bias_2nt[f5_coefs$p5Bias$seq]
+f5_coefs$bothBias$sim <- green_p5bias_2nt[f5_coefs$bothBias$seq]
 
 no_n3bias <- no_n3bias / no_n3bias["AAA"]
 green_n3bias_3nt <- green_n3bias_3nt / green_n3bias_3nt["AAA"]
-f3_coefs$noBias$sim <- no_n3bias[f3_coefs$noBias$f3]
-f3_coefs$n3Bias$sim <- green_n3bias_3nt[f3_coefs$n3Bias$f3]
-f3_coefs$p5Bias$sim <- no_n3bias[f3_coefs$p5Bias$f3]
-f3_coefs$bothBias$sim <- green_n3bias_3nt[f3_coefs$bothBias$f3]
+f3_coefs$noBias$sim <- no_n3bias[f3_coefs$noBias$seq]
+f3_coefs$n3Bias$sim <- green_n3bias_3nt[f3_coefs$n3Bias$seq]
+f3_coefs$p5Bias$sim <- no_n3bias[f3_coefs$p5Bias$seq]
+f3_coefs$bothBias$sim <- green_n3bias_3nt[f3_coefs$bothBias$seq]
 
 # make plots --------------------------------------------------------------
 
@@ -124,3 +126,23 @@ noBias_f5 + n3Bias_f5 + p5Bias_f5 + bothBias_f5 +
   plot_layout(nrow=2, byrow=T, heights=c(1,1))
 
 ggsave(filename="simulation_f5_f3_coefs.pdf")
+
+# aggregate plot ----------------------------------------------------------
+
+f5_coefs <- do.call(rbind, f5_coefs)
+f5_coefs$end_nt <- substr(f5_coefs$seq, 1, 1)
+f5_coefs$region <- "5' bias"
+
+f3_coefs <- do.call(rbind, f3_coefs)
+f3_coefs$end_nt <- substr(f3_coefs$seq, 3, 3)
+f3_coefs$region <- "3' bias"
+
+all_coefs <- rbind(f5_coefs, f3_coefs)
+all_coefs$region <- factor(all_coefs$region, levels=c("5' bias", "3' bias"))
+all_coefs$expt <- factor(all_coefs$expt, levels=c("noBias", "n3Bias", "p5Bias", "bothBias"))
+levels(all_coefs$expt) <- c("no bias", "only 3' bias", "only 5' bias", "5' and 3' bias")
+
+ggplot(all_coefs, aes(x=sim, y=exp(Estimate), col=end_nt)) +
+  geom_point(alpha=0.5, size=3) + theme_bw() + facet_grid(expt ~ region) +
+  xlab("simulated parameter") + ylab("recovered parameter") +
+  theme(legend.position="none")
