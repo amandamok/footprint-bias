@@ -1,0 +1,75 @@
+
+
+# The libraries were ran in 2 batches (b/c we wanted more depth for some of these). The untrimmed files are here (please copy from here)
+# McGlincy. Linkers used: CGTAA (Rep "B") GCATA (Rep "C") 
+/mnt/ingolialab/lucas_ferguson/January2020RNaseI/McGlincy/McGlincy.fastq.gz
+/mnt/ingolialab/lucas_ferguson/January2020RNaseI/round2/McGlincy/McGlincy.fastq.gz
+
+# WT-OTTR-seq RNase I Rep "B" 
+/mnt/ingolialab/lucas_ferguson/January2020RNaseI/RNaseI/R1b.fastq.gz
+/mnt/ingolialab/lucas_ferguson/January2020RNaseI/round2/RNaseI/R1b.fastq.gz
+
+# WT-OTTR-seq RNase I Rep "C"
+/mnt/ingolialab/lucas_ferguson/January2020RNaseI/RNaseI/R1c.fastq.gz
+/mnt/ingolialab/lucas_ferguson/January2020RNaseI/round2/RNaseI/R1c.fastq.gz
+
+# F753-OTTR-seq RNase I Rep "B"
+/mnt/ingolialab/lucas_ferguson/January2020RNaseI/RNaseI/R1F753b.fastq.gz
+/mnt/ingolialab/lucas_ferguson/January2020RNaseI/round2/RNaseI/R1F753b.fastq.gz
+
+# F753-OTTR-seq RNase I Rep "C"
+/mnt/ingolialab/lucas_ferguson/January2020RNaseI/RNaseI/R1F753c.fastq.gz
+/mnt/ingolialab/lucas_ferguson/January2020RNaseI/round2/RNaseI/R1F753c.fastq.gz
+
+# WT-w/UMI OTTR-seq RNase I Rep "B" 
+/mnt/ingolialab/lucas_ferguson/January2020RNaseI/RNaseI/R1CY5Nb.fastq.gz
+/mnt/ingolialab/lucas_ferguson/January2020RNaseI/round2/RNaseI/R1CY5Nb.fastq.gz
+
+# WT-w/UMI OTTR-seq RNase I Rep "C" 
+/mnt/ingolialab/lucas_ferguson/January2020RNaseI/RNaseI/R1CY5Nc.fastq.gz
+/mnt/ingolialab/lucas_ferguson/January2020RNaseI/round2/RNaseI/R1CY5Nc.fastq.gz
+
+### from Lucas: CGTAA is the "good" T4-PNK McGlincy replicates, and the exact same pool of RPFs was used to make 
+### all of the "replicate B" tehchnical replicates in OTTR.. GCATA was the "bad" T4-PNK McGlincy replicate, 
+### and the exact same pool of RPFs was used to make all of the "replicate C" technical replicates in OTTR.
+
+# For McGlincy (this is what I did, but I'm sure you have your own options!)
+# Decompress the raw-reads, and pipe the output to cutadapt. Do the following
+# 1. Remove constant adapter sequence from 3' end of read
+# 2. Remove the 5 3'-most bases, and preserve that sequence in the header. These are the linker sequences 
+# 3. Remove the next 5 3'-most bases, and preserve that sequence in the header. These are the ligation-UMI. 
+# 4. Remove the 2 5'-most bases, and further pad the ligation-UMI linker. These are from cDNA ligation. Remove any read shorter than 10 bases, or based on quality. 
+zcat McGlincy.fastq.gz | cutadapt -m 6 -a AGATCGGAAGAGCAC - | cutadapt -u -5 --rename='{id} linker={cut_suffix}' - | cutadapt -u -5 --rename='{id} {cut_suffix}_{comment}' - | cutadapt -m 10 -q  10 -u 2 --rename='{id}_{cut_prefix}{comment}' - | gzip - > McGlincy.trim.fastq.gz
+
+# The resulting trim would happen (| indicating where cutadapt will slice the reads) 
+#@A00887:282:HYF27DRXX:2:2101:1108:1000 1:N:0:AGTACTCC+NCATCCTT
+#NC|ATCGCTGAAGACTCCGAGCAATT|CTTCG|GCATA|AGATCGGAAGAGCACACGTCTGAACACCAGTCACAGTACTCCATCTCGTATGCCGTCTTCTGCTTG
+# to 
+#@A00887:282:HYF27DRXX:2:2101:1108:1000_NCCTTCG_linker=GCATA
+#ATCGCTGAAGACTCCGAGCAATT
+
+# Split FASTQ into multiple FASTQ based on linker=NNNNN
+# Accepts fastq or fastq.gz, and reports as either fastq.gz or .fastq (dependent on compression of input). Will also accept .fq and .fq.gz. Only accepts 1 fastq. All linkers are provided one after the other.
+# Output files will be the same as input filename with the respective linker appended to it. 
+python /mnt/ingolialab/lucas_ferguson/Scripts/splitFASTQbyLinkers.py McGlincy.trim.fastq.gz GCATA CGTAA
+
+###############
+
+# You can use the following for WT-OTTR-seq and F753-OTTR-seq
+# 1. Remove constant adapter sequence from 3' end of read (leaving being either an A or a G corresponding to the +1T or +1C used to capture the 3'ddA or 3'ddG labeled RNA. 
+# 2. Remove the 1 5'-most bases, and preserve that sequence in the header as the NTA (non-templated addition). This is usually a C, and refers to the non-templated G that the enzyme will add at the end of the cDNA
+# 3. Remove the next 1 3'-most bases, and preserve that sequence in the header as the TPRT. This is the +1T (sequenced as A) or +1C (sequenced as G) referred to in step-1. 
+# 4. Remove bases with low quality, discard reads shorter than 10 bases.
+zcat file.fastq.gz | cutadapt -m 2 -a GATCGGAAGAGCACACGTCTGAACTCCAGTCAC - | cutadapt -u 1 --rename='{id} NTA={cut_prefix}' - | cutadapt -u -1 --rename='{id}_{comment}_TPRT={cut_suffix}' - | cutadapt -m 10 -q 10 - >file.trim.fastq
+
+###############
+
+# You can use the following for WT-w/UMI OTTR-seq. 
+# 1. Remove constant adapter sequence from 3' end of read (leaving being either an A or a G corresponding to the +1T or +1C used to capture the 3'ddA or 3'ddG labeled RNA. 
+# 2. Remove the 7 5'-most bases, and preserve that sequence in the header as the BCNTA (UMI and non-templated addition). This is usually a NNNNNYC. 
+# 3. Remove the next 1 3'-most bases, and preserve that sequence in the header as the TPRT. This is the +1T (sequenced as A) or +1C (sequenced as G) referred to in step-1. 
+# 4. Remove bases with low quality, discard reads shorter than 10 bases.
+zcat file.fastq.gz | cutadapt -m 8 -a GATCGGAAGAGCACACGTCTGAACTCCAGTCAC - | cutadapt -u 7 --rename='{id} BCNTA={cut_prefix}' - | cutadapt -u -1 --rename='{id}_{comment}_TPRT={cut_suffix}' - | cutadapt -m 10 -q 10 - > file.fastq
+
+# After trimming, all reads can be mapped directly. Both McGlincy and OTTR-seq should be aligned with the parameter --norc (or an equivalent parameter to prevent antisense alignments)
+
