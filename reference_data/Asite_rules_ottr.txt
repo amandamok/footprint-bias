@@ -1,0 +1,6 @@
+frame_0 frame_1 frame_2
+25  NA  NA  13
+26  NA  14  13
+27  15  14  13
+28  15  14  NA
+29  15  NA  NA
