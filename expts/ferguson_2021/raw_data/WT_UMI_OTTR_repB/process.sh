@@ -45,7 +45,7 @@ bowtie -v 2 -p 10 -S --un ottrUMI_trimmed_not_rrna.fq \
 $ref_dir/ScerRRNA ottrUMI_trimmed_adaptor_umi_nta_tprt.fq > \
 ottrUMI_trimmed_rrna.sam 2> ottrUMI_trimmed_rrna.bowtiestats
 ## 51 474 631 input reads
-## 41975544 (81.55%) reads with ≥1 alignment
+## 41 975 544 (81.55%) reads with ≥1 alignment
 ## 9 499 087 (18.45%) unaligned reads
 
 # 6. remove contaminant reads: ncRNA
@@ -54,7 +54,7 @@ $ref_dir/rna_coding ottrUMI_trimmed_not_rrna.fq > \
 ottrUMI_trimmed_ncrna.sam 2> ottrUMI_trimmed_ncrna.bowtiestats
 ## 9 499 087 input reads
 ## 86 385 (0.91%) reads with ≥1 alignment
-## 9 412 702 unaligned reads
+## 9 412 702 (99.09%) unaligned reads
 
 # 7. deduplicate: report all best alignments (-a --best --strata)
 bowtie -v 2 -p 10 -S --norc -a --best --strata \
@@ -76,28 +76,33 @@ Rscript $HOME/footprint-bias/scripts/filter_sam.R \
 -i ottrUMI_trimmed_not_rrna_ncrna_best_sorted.sam \
 -o ottrUMI_trimmed_not_rrna_ncrna_best_sorted_filtered.sam
 
-# 10. deduplicate: deduplicate UMIs
-umi_tools dedup --output-stats=deduplicated --in-sam --out-sam --read-length \
--I ottrUMI_trimmed_not_rrna_ncrna_best_sorted_filtered.sam \
+# 10. deduplicate: sort and index
+samtools sort ottrUMI_trimmed_not_rrna_ncrna_best_sorted_filtered.sam \
+-o ottrUMI_trimmed_not_rrna_ncrna_unique.bam -O BAM
+samtools index ottrUMI_trimmed_not_rrna_ncrna_unique.bam
+
+# 11. deduplicate: deduplicate UMIs
+umi_tools dedup --output-stats=deduplicated --out-sam --read-length \
+-I ottrUMI_trimmed_not_rrna_ncrna_unique.bam \
 -S ottrUMI_trimmed_deduplicated.sam \
 -L ottrUMI_trimmed_deduplicated.umitools \
 -E ottrUMI_trimmed_deduplicated.error
 ## 7 584 415 reads in
-## 7 573 939 positions deduplicated
-## 7 574 056 reads out
+## 1 973 980 positions deduplicated
+## 4 515 446 reads out
 
-# 11. deduplicate: convert into fastq
+# 12. deduplicate: convert into fastq
 samtools fastq ottrUMI_trimmed_deduplicated.sam > ottrUMI_trimmed_deduplicated.fq
 
-# 12. align to transcriptome
+# 13. align to transcriptome
 bowtie -v 2 -p 10 -S --norc -a $ref_dir/scer.transcripts.20cds20 \
 ottrUMI_trimmed_deduplicated.fq > \
 ottrUMI_trimmed_deduplicated_footprints.sam 2> \
 ottrUMI_trimmed_deduplicated_footprints.bowtiestats
-## 7 574 056 unique reads
-## 12 636 601 alignments
+## 4 515 446 unique reads
+## 7 349 578 alignments
 
-# 13. compute multimapping weights
+# 14. compute multimapping weights
 rsem-calculate-expression --seed-length 20 --sam \
 ottrUMI_trimmed_deduplicated_footprints.sam \
 $ref_dir/scer.transcripts.20cds20 \

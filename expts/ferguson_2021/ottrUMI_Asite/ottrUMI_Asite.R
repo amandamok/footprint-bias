@@ -10,7 +10,7 @@ library(choros)
 ref_dir <- file.path(here(), "reference_data")
 transcript_fa_fname <- file.path(ref_dir, "scer.transcripts.20cds20.fa")
 transcript_length_fname <- file.path(ref_dir, "scer.transcripts.20cds20.lengths.txt")
-offsets_fname <- file.path(ref_dir, "Asite_rules_ottr.txt")
+offsets_fname <- file.path(ref_dir, "Asite_rules_ottr_v2.txt")
 
 ottrUMI_bam_fname <- file.path(here(), "expts", "ferguson_2021", "raw_data", "WT_UMI_OTTR_repB",
                                "ottrUMI_trimmed_deduplicated_footprints.transcript.bam")

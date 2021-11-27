@@ -30,7 +30,7 @@ cutadapt -j 10 -m 20 -u -1 --rename='{id} {comment} TPRT={cut_suffix}' -o \
 ## A: 54 929 083 (75.2%)
 ## C: 10 043 (0.0%)
 ## G: 18 122 951 (24.8%)
-## T: 17 473 (99.8%)
+## T: 17 473 (0.0%)
 ## N: 233 (0.0%)
 
 # 4. remove contaminant reads: rRNA

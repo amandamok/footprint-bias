@@ -33,6 +33,10 @@
 ### all of the "replicate B" tehchnical replicates in OTTR.. GCATA was the "bad" T4-PNK McGlincy replicate, 
 ### and the exact same pool of RPFs was used to make all of the "replicate C" technical replicates in OTTR.
 
+### I expect files "R1b", and "R1CY5Nb" to look worse than "R1c", "R1CY5Nc", "F753R1c" and "F753R1b" as well. 
+### Lastly, I expect F753R1b and F753R1c to be more similar than other R1b and R1c, and R1CY5Nc and R1CY5Nb 
+### in terms of the agreement of technical replicates
+
 # For McGlincy (this is what I did, but I'm sure you have your own options!)
 # Decompress the raw-reads, and pipe the output to cutadapt. Do the following
 # 1. Remove constant adapter sequence from 3' end of read

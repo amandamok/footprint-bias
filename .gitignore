@@ -25,3 +25,15 @@ expts/goodarzi_2016/*/*bam
 expts/goodarzi_2016/*/*Rda
 expts/goodarzi_2016/raw_data/SRR*
 scripts/*Rda
+expts/ferguson_2021/*/*Rda
+*bam
+*sam
+*error
+*umitools
+*bowtiestats
+*results
+*rsem.stderr
+*tsv
+*cutadapt
+*fq
+*.gz
