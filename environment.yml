@@ -1,0 +1,11 @@
+name: choros
+channels:
+  - bioconda
+dependencies
+  - cutadapt
+  - umi_tools
+  - bowtie
+  - samtools
+  - rsem
+  - R
+  - snakemake

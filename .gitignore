@@ -5,10 +5,12 @@ reference_data/scer.transcripts.aa*
 reference_data/grch38.transcripts.fa
 reference_data/*ebwt
 reference_data/*fa
+reference_data/*fasta
 reference_data/*seq
 reference_data/*ti
 reference_data/*grp
 reference_data/*gff3
+reference_data/*gff
 expts/wu_2019/raw_data/SRR*/*
 expts/schuller_2017/*Rda
 expts/schuller_2017/schuller_eval_cache
