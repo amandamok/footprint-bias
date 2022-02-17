@@ -14,7 +14,6 @@ cat McGlincy_round1.fastq.gz McGlincy_round2.fastq.gz | zcat | \
 cutadapt -a CGTAAAGATCGGAAGAGCAC -j 10 -m 20 \
 --untrimmed-output mcglincy_untrimmed.fq \
 -o mcglincy_trimmed_adaptor.fq - > mcglincy_trimmed_adaptor.cutadapt
-##
 
 # 2. preprocess: extract 2nt from 5' end and 5nt from 3' end as UMI; trim
 umi_tools extract --extract-method=regex \
