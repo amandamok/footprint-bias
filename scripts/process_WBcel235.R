@@ -108,33 +108,23 @@ colnames(transcript_seq) <- c("utr5", "cds", "utr3")
 
 # filter out non-unique CDS -----------------------------------------------
 
-# for non-unique CDS: choose longest 5' UTR (else, 3' UTR)
+# for non-unique CDS: choose first (alphabetically) transcript
 which_duplicated <- which(duplicated(transcript_seq[, "cds"]))
-remove_transcripts <- sapply(which_duplicated,
+remove_transcripts <- lapply(which_duplicated,
                              function(x) {
                                which_duplicated <- which(transcript_seq[, "cds"] ==
                                                            transcript_seq[x, "cds"])
                                tmp_gff <- gff_mRNA[which_duplicated,]
+                               tmp_chr <- unique(tmp_gff$chr)
                                tmp_strand <- unique(tmp_gff$strand)
-                               if(length(tmp_strand) > 1) { # duplicated CDS on different strands
+                               if(length(tmp_strand) > 1 &
+                                  length(tmp_chr) > 1) { # duplicated CDS on different strands
                                  return(NA)
+                               } else {
+                                 return(which_duplicated[-1])
                                }
-                               if(length(unique(tmp_gff$start)) > 1) { # pick longest 5' UTR
-                                 if(tmp_strand == "+") {
-                                   which_remove <- which_duplicated[which.min(tmp_gff$start)]
-                                 } else {
-                                   which_remove <- which_duplicated[which.max(tmp_gff$end)]
-                                 }
-                               } else { # pick longest 3' UTR
-                                 if(tmp_strand == "+") {
-                                   which_remove <- which_duplicated[which.max(tmp_gff$end)]
-                                 } else {
-                                   which_remove <- which_duplicated[which.min(tmp_gff$start)]
-                                 }
-                               }
-                               return(which_remove)
                              })
-remove_transcripts <- remove_transcripts[!is.na(remove_transcripts)]
+remove_transcripts <- unlist(remove_transcripts)
 transcript_seq <- transcript_seq[-remove_transcripts,]
 gff_mRNA <- gff_mRNA[-remove_transcripts,]
 
