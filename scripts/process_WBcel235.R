@@ -8,8 +8,8 @@ num_cores <- 20
 
 ref_dir <- file.path(here(), "reference_data")
 
-min_utr5 <- 20
-min_utr3 <- 20
+utr5_length <- 20
+utr3_length <- 20
 
 # load sequences + annotations --------------------------------------------
 
@@ -42,7 +42,8 @@ reverse_transcribe <- function(x) {
   return(paste(rt_x, collapse=""))
 }
 
-extract_sequences <- function(transcript_name, genome_gff) {
+extract_sequences <- function(transcript_name, genome_gff,
+                              utr5_length=20, utr3_length=20) {
   # transcript_name: character; transcript name
   # genome_gff: data.frame; corresponds to GFF annotation
   transcript_gff <- subset(genome_gff,
@@ -65,36 +66,23 @@ extract_sequences <- function(transcript_name, genome_gff) {
   cds_seq <- paste(transcript_cds$sequence, collapse="")
   # 2. extract 5' UTR sequence
   if(transcript_strand == "+") {
-    utr5_start <- transcript_mRNA$start
     utr5_end <- transcript_cds$start[1] - 1
-    if((utr5_end - utr5_start + 1) < min_utr5) {
-      utr5_start <- utr5_end - min_utr5 + 1
-    }
+    utr5_start <- utr5_end - utr5_length + 1
     utr5_seq <- substr(genome_seq[transcript_mRNA$chr], utr5_start, utr5_end)
   } else { # (-) strand
     utr5_start <- transcript_cds$end[1] + 1
-    utr5_end <- transcript_mRNA$end
-    if((utr5_end - utr5_start + 1) < min_utr5) {
-      utr5_end <- utr5_start + min_utr5 - 1
-    }
+    utr5_end <- utr5_start + utr5_length - 1
     utr5_seq <- substr(genome_seq[transcript_mRNA$chr], utr5_start, utr5_end)
     utr5_seq <- reverse_transcribe(utr5_seq)
   }
   # 3. extract 3' UTR sequence
-  browser()
   if(transcript_strand == "+") {
     utr3_start <- transcript_cds$end[nrow(transcript_cds)] + 1
-    utr3_end <- transcript_mRNA$end
-    if((utr3_end - utr3_start + 1) < min_utr3) {
-      utr3_end <- utr3_start + min_utr3 - 1
-    }
+    utr3_end <- utr3_start + utr3_length - 1
     utr3_seq <- substr(genome_seq[transcript_mRNA$chr], utr3_start, utr3_end)
   } else { # (-) strand
-    utr3_start <- transcript_mRNA$start
     utr3_end <- transcript_cds$start[nrow(transcript_cds)] - 1
-    if((utr3_end - utr3_start + 1) < min_utr3) {
-      utr3_start <- utr3_end - min_utr3 + 1
-    }
+    utr3_start <- utr3_end - utr3_length + 1
     utr3_seq <- substr(genome_seq[transcript_mRNA$chr], utr3_start, utr3_end)
     utr3_seq <- reverse_transcribe(utr3_seq)
   }
@@ -110,7 +98,6 @@ gff_mRNA$transcript <- sapply(gff_mRNA$attribute,
                                     strsplit(x, split=";")[[1]][1])
                               })
 
-
 cl <- parallel::makeCluster(num_cores)
 doParallel::registerDoParallel(cl)
 transcript_seq <- foreach(x=gff_mRNA$transcript, .combine='rbind') %dopar% {
@@ -118,7 +105,6 @@ transcript_seq <- foreach(x=gff_mRNA$transcript, .combine='rbind') %dopar% {
 }
 stopCluster(cl)
 colnames(transcript_seq) <- c("utr5", "cds", "utr3")
-
 
 # filter out non-unique CDS -----------------------------------------------
 
