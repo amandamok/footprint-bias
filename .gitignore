@@ -29,6 +29,7 @@ expts/*/*/*/*Rda
 expts/*/raw_data/*
 expts/cheng_2018/timecourse_comparison/timepoint_0hr_timepoint_*
 expts/cheng_2018/ref_data/*
+expts/jansson_2021/reference_data/*
 *bam
 *sam
 *error
@@ -40,4 +41,5 @@ expts/cheng_2018/ref_data/*
 *cutadapt
 *fq
 *.gz
+*stat
 training_transcripts.txt
