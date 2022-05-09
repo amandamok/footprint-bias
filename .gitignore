@@ -14,8 +14,6 @@ reference_data/*gff3
 reference_data/*gff
 expts/wu_2019/raw_data/SRR*/*
 expts/wu_2019/raw_data/plots
-expts/wu_2019/*/*Rda
-expts/wu_2019/*/*bam
 expts/schuller_2017/schuller_eval_cache
 expts/schuller_2017/schuller_eval_files
 expts/tunney_2018/tunney_eval_cache
@@ -23,13 +21,14 @@ expts/tunney_2018/tunney_eval_files
 expts/weinberg_2016/weinberg_eval_cache
 expts/weinberg_2016/weinberg_eval_files
 expts/simulated_data/*Bias/*
-expts/goodarzi_2016/*/*bam
 expts/goodarzi_2016/raw_data/SRR*
 scripts/*Rda
-expts/ferguson_2021/*/*Rda
-expts/*/*/*Rda
 expts/*/*Rda
+expts/*/*/*Rda
+expts/*/*/*/*Rda
 expts/*/raw_data/*
+expts/cheng_2018/timecourse_comparison/timepoint_0hr_timepoint_*
+expts/cheng_2018/ref_data/*
 *bam
 *sam
 *error
