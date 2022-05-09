@@ -40,3 +40,4 @@ expts/cheng_2018/ref_data/*
 *cutadapt
 *fq
 *.gz
+training_transcripts.txt
